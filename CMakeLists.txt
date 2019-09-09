@@ -31,23 +31,3 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 # TensorFlow-based model runner
 
 add_subdirectory(model_runner)
-
-# libprotobuf
-
-set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "Do not build protoc" FORCE) 
-set(protobuf_BUILD_TESTS OFF CACHE BOOL "Do not build protobuf tests" FORCE)
-set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "Use /MD and /MDd" FORCE)
-add_subdirectory(third_party/protobuf/cmake)
-
-# TensorFlow core protobuf definitions
-
-add_subdirectory(third_party/tensorflow)
-
- set(THIRD_PARTY_TARGETS
-    libprotobuf
-    libprotobuf-lite
-)
-
-foreach(TGT ${THIRD_PARTY_TARGETS})
-    set_property(TARGET ${TGT} PROPERTY FOLDER "third_party")
-endforeach()
