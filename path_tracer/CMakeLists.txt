@@ -29,15 +29,10 @@ function(BuildApp APP_NAME)
     file(GLOB SOURCE_FILES  
         ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 
-    # Get target name
-    string(SUBSTRING ${APP_NAME} 0 1 FIRST_LETTER)
-    string(TOUPPER ${FIRST_LETTER} FIRST_LETTER)
-    string(REGEX REPLACE "^.(.*)" "${FIRST_LETTER}\\1" TARGET_NAME "${APP_NAME}")
-
     # Add executable
-    add_executable(${TARGET_NAME} ${SOURCE_FILES})
+    add_executable(${APP_NAME} ${SOURCE_FILES})
 
-    target_sources(${TARGET_NAME} PRIVATE
+    target_sources(${APP_NAME} PRIVATE
         ${HEADER_FILES}
         ${SHADER_FILES})
 
@@ -59,13 +54,13 @@ function(BuildApp APP_NAME)
     set_target_properties(${APP_NAME} PROPERTIES
         FOLDER "Examples"
         DEBUG_POSTFIX D
-        VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${APP_NAME})
+        VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
     source_group("Shaders" FILES ${SHADER_FILES})
     
-    target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/RadeonRaysNext/include)
+    target_include_directories(${APP_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/RadeonRaysNext/include)
 
-    target_link_libraries(${TARGET_NAME} PUBLIC
+    target_link_libraries(${APP_NAME} PUBLIC
         glfw
         glm
         ${CMAKE_CURRENT_SOURCE_DIR}/RadeonRaysNext/lib/RadeonRaysNext.lib
