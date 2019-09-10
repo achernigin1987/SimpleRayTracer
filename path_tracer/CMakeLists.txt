@@ -20,8 +20,7 @@ add_subdirectory(externals/tinyobjloader-1.1.0)
 function(BuildApp APP_NAME)
     # Get source files
     file(GLOB HEADER_FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h
-        ${CMAKE_CURRENT_SOURCE_DIR}/RadeonRaysNext/include/*.h)
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/*.h)
     file(GLOB SHADER_FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.comp
         ${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.frag
@@ -63,6 +62,8 @@ function(BuildApp APP_NAME)
         VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${APP_NAME})
 
     source_group("Shaders" FILES ${SHADER_FILES})
+    
+    target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/RadeonRaysNext/include)
 
     target_link_libraries(${TARGET_NAME} PUBLIC
         glfw
