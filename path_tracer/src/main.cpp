@@ -1,5 +1,7 @@
-int main()
+#include "Application.h"
+
+int main(int argc, char const** argv)
 {
-    
-    return 0;
+    auto &app = PathTracer::Application::GetAppInstance();
+    return app.Run(argc, argv);
 }
