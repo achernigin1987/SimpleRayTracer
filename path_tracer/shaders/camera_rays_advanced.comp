@@ -1,0 +1,192 @@
+/**********************************************************************
+Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+********************************************************************/
+
+#version 450
+
+#define CMJ_DIM 16
+
+struct Sampler
+{
+    uint index;
+    uint scramble;
+    uint dimension;
+};
+
+struct Ray
+{
+    vec3 direction;
+    float time;
+    vec3 origin;
+    float max_t;
+};
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) uniform Params
+{
+    vec4 eye;
+    vec3 center;
+    vec2 near_far;
+    vec4 screen_dims;
+    mat4 view_proj_inv;
+};
+
+layout(binding = 1) buffer Rays     { Ray   rays[];     };
+layout(binding = 2) buffer RayCount { uint  rayCount;   };
+layout(binding = 3) buffer AoBuffer { uvec2 aoBuffer[]; };
+layout(binding = 4) buffer Color    { uint  color[];    };
+layout(binding = 5) buffer Random   { uint  random[];   };
+
+uint Permute(in uint i, in uint l, in uint p)
+{
+    uint w = l - 1;
+    w |= w >> 1;
+    w |= w >> 2;
+    w |= w >> 4;
+    w |= w >> 8;
+    w |= w >> 16;
+    do
+    {
+        i ^= p;
+        i *= 0xe170893d;
+        i ^= p >> 16;
+        i ^= (i & w) >> 4;
+        i ^= p >> 8;
+        i *= 0x0929eb3f;
+        i ^= p >> 23;
+        i ^= (i & w) >> 1;
+        i *= 1 | p >> 27;
+        i *= 0x6935fa69;
+        i ^= (i & w) >> 11;
+        i *= 0x74dcb303;
+        i ^= (i & w) >> 2;
+        i *= 0x9e501cc3;
+        i ^= (i & w) >> 2;
+        i *= 0xc860a3df;
+        i &= w;
+        i ^= i >> 5;
+    }
+    while (i >= l);
+    return (i + p) % l;
+}
+
+float RandFloat(in uint i, in uint p)
+{
+    i ^= p;
+    i ^= i >> 17;
+    i ^= i >> 10;
+    i *= 0xb36534e5;
+    i ^= i >> 12;
+    i ^= i >> 21;
+    i *= 0x93fc4795;
+    i ^= 0xdf6e307f;
+    i ^= i >> 17;
+    i *= 1 | p >> 18;
+    return i * (1.0f / 4294967808.0f);
+}
+
+vec2 CMJ(in uint s, in uint n, in uint p)
+{
+    const uint sx = Permute(s % n, n, p * 0xa511e9b3);
+    const uint sy = Permute(s / n, n, p * 0x63d83595);
+    const float jx = RandFloat(s, p * 0xa399d265);
+    const float jy = RandFloat(s, p * 0x711ad6a5);
+
+    return vec2(
+        (s % n + (sy + jx) / n) / n,
+        (s / n + (sx + jy) / n) / n);
+}
+
+Sampler SamplerInit(in uint index, in uint frame, in uint offset)
+{
+    Sampler s;
+    uint rnd = random[index];
+    uint scramble = rnd * 0x1fe3434f * ((frame + 331 * rnd) / (CMJ_DIM * CMJ_DIM));
+    s.index = frame % (CMJ_DIM * CMJ_DIM);
+    s.dimension = 300 * offset + 5;
+    s.scramble = scramble;
+    return s;
+}
+
+vec2 Sample2D(inout Sampler s)
+{
+    vec2 result;
+    uint idx = Permute(s.index, CMJ_DIM * CMJ_DIM, 0xa399d265 * s.dimension * s.scramble);
+    result = CMJ(idx, CMJ_DIM, s.dimension++ * s.scramble);
+    return result;
+}
+
+uint PackColor(in vec4 color)
+{
+    return
+        ((uint(color.a * 255.0f) & 0xffu) << 24) |
+        ((uint(color.r * 255.0f) & 0xffu) << 16) |
+        ((uint(color.g * 255.0f) & 0xffu) << 8 ) |
+        ((uint(color.b * 255.0f) & 0xffu) << 0 );
+}
+
+uvec2 GetPos(in uint idx, in uint dim)
+{
+    return uvec2(idx % dim, idx / dim);
+}
+
+uvec2 GetPixelPos(in uint idx)
+{
+    return GetPos(idx & 0x3Fu, 8) | (GetPos(idx >> 6, uint(screen_dims.x + 7.0f) >> 3) << 3);
+}
+
+void main()
+{
+    Ray ray;
+
+    // Get hold of the pixel
+    uint tid = gl_GlobalInvocationID.x;
+    uvec2 pixel_pos = GetPixelPos(tid);
+
+    // Clear memory
+    if (tid == 0)
+        rayCount = 0;
+    if (eye.w == 0.0f)
+    {
+        aoBuffer[tid] = uvec2(0);
+        color[tid] = PackColor(vec4(0.1f, 0.1f, 0.8f, 1.0f));
+    }
+
+    // Jitter pixel position
+    Sampler s = SamplerInit(tid, floatBitsToUint(eye.w), 0);
+    vec2 jitter_pixel_pos = vec2(pixel_pos) + Sample2D(s);
+
+    // Convert to world space position
+    vec2 ndc = 2.0f * jitter_pixel_pos * screen_dims.zw - 1.0f;
+    vec4 homogeneous = view_proj_inv * vec4(ndc * vec2(1.0f, -1.0f), 0.0f, 1.0f);
+    homogeneous.xyz /= homogeneous.w;   // projection divide
+
+    // Create the camera ray
+    ray.direction = normalize(homogeneous.xyz - eye.xyz);
+    float ray_offset = near_far.x / dot(ray.direction, normalize(center - eye.xyz));
+    ray.origin = eye.xyz + ray_offset * ray.direction;
+    ray.max_t = max(near_far.y - ray_offset, 0.0f);
+    ray.time = 0.0f;
+
+    // Write the ray out to memory
+    rays[tid] = ray;
+}

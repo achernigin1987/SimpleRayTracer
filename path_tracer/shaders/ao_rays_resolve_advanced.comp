@@ -1,0 +1,74 @@
+/**********************************************************************
+Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+********************************************************************/
+
+#version 450
+
+#define INVALID_ADDR 0xffffffffu
+
+struct Hit
+{
+    uint shape_id;
+    uint prim_id;
+    vec2 uv;
+};
+
+struct Ray
+{
+    vec3 direction;
+    float time;
+    vec3 origin;
+    float max_t;
+};
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) buffer AoBuffer { uvec2 aoBuffer[]; };
+layout(binding = 1) buffer Color    { uint  color[];    };
+layout(binding = 2) buffer Ids      { uint  ids[];      };
+layout(binding = 3) buffer RayCount { uint  rayCount;   };
+layout(binding = 4) buffer Hits     { Hit   hits[];     };
+
+uint PackColor(in vec4 color)
+{
+    return
+        ((uint(color.a * 255.0f) & 0xffu) << 24) |
+        ((uint(color.r * 255.0f) & 0xffu) << 16) |
+        ((uint(color.g * 255.0f) & 0xffu) << 8 ) |
+        ((uint(color.b * 255.0f) & 0xffu) << 0 );
+}
+
+void main()
+{
+    // Read the intersection data
+    const uint tid = gl_GlobalInvocationID.x;
+    if (tid >= rayCount)
+        return; // out of bounds
+    const Hit hit = hits[tid];
+
+    // If we hit something, go black otherwise, go white
+    const uint pixel_idx = ids[tid];
+    aoBuffer[pixel_idx] += uvec2(hit.shape_id == INVALID_ADDR ? 1 : 0, 1);
+    float pixel_color = sqrt(float(aoBuffer[pixel_idx].x) / float(aoBuffer[pixel_idx].y));
+
+    // Write the color out to memory
+    color[pixel_idx] = PackColor(vec4(vec3(pixel_color), 1.0f));
+}

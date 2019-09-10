@@ -1,0 +1,365 @@
+/**********************************************************************
+Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+********************************************************************/
+
+#version 450
+
+#define AO_RADIUS    200.0f
+#define CMJ_DIM      16
+#define GROUP_SIZE   64
+#define INVALID_ADDR 0xffffffffu
+#define PI           3.14159265358979323846f
+
+struct Hit
+{
+    uint shape_id;
+    uint prim_id;
+    vec2 uv;
+};
+
+struct Ray
+{
+    vec3 direction;
+    float time;
+    vec3 origin;
+    float max_t;
+};
+
+struct Sampler
+{
+    uint index;
+    uint scramble;
+    uint dimension;
+};
+
+
+struct Transform
+{
+    vec4 m0;
+    vec4 m1;
+    vec4 m2;
+};
+
+struct Shape
+{
+    uint count;
+    uint first_index;
+    uint base_vertex;
+    uint padding;
+    Transform transform;
+};
+
+struct Vertex
+{
+    vec3 position;
+    vec3 normal;
+    vec2 texcoords;
+    vec3 color;
+};
+
+layout(local_size_x = GROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 0) uniform Params
+{
+    vec4 eye;
+    vec3 center;
+    vec2 near_far;
+    vec4 screen_dims;
+    mat4 view_proj_inv;
+};
+
+layout(binding = 1) buffer Ids        { uint  ids[];        };
+layout(binding = 2) buffer Rays       { Ray   rays[];       };
+layout(binding = 3) buffer RayCount   { uint  rayCount;     };
+layout(binding = 4) buffer Hits       { Hit   hits[];       };
+layout(binding = 5) buffer CameraRays { Ray   cameraRays[]; };
+layout(binding = 6) buffer Random     { uint  random[];     };
+layout(binding = 7) buffer Shapes     { Shape shapes[];     };
+layout(binding = 8) buffer Shapes2    { Shape shapes2[];     };
+layout(binding = 9) buffer Indices    { uint  indices[];    };
+layout(binding = 10) buffer Vertices  { float vertices[];   };
+
+shared uint ScanBuffer[GROUP_SIZE];
+shared uint RayOffset;
+
+vec3 TransformPoint(vec3 p, Transform transform)
+{
+    vec3 result;
+    result.x = dot(transform.m0.xyz, p) + transform.m0.w;
+    result.y = dot(transform.m1.xyz, p) + transform.m1.w;
+    result.z = dot(transform.m2.xyz, p) + transform.m2.w;
+
+    return result;
+}
+
+Vertex LoadVertex(in uint index, in Transform transform)
+{
+    Vertex vertex;
+
+    uint i = 12 * index;
+
+    vertex.position.x = vertices[i++];
+    vertex.position.y = vertices[i++];
+    vertex.position.z = vertices[i++];
+    vertex.position = TransformPoint(vertex.position, transform);
+
+    vertex.normal.x = vertices[i++];
+    vertex.normal.y = vertices[i++];
+    vertex.normal.z = vertices[i++];
+    vertex.normal = TransformPoint(vertex.normal, transform);
+
+    vertex.texcoords.x = vertices[i++];
+    vertex.texcoords.y = vertices[i++];
+    ++i;    // unused padding
+
+    vertex.color.x = vertices[i++];
+    vertex.color.y = vertices[i++];
+    vertex.color.z = vertices[i++];
+
+    return vertex;
+}
+
+uvec2 GetPos(in uint idx, in uint dim)
+{
+    return uvec2(idx % dim, idx / dim);
+}
+
+uvec2 GetPixelPos(in uint idx)
+{
+    return GetPos(idx & 0x3Fu, 8) | (GetPos(idx >> 6, uint(screen_dims.x + 7.0f) >> 3) << 3);
+}
+
+uint GetPixelIdx(in uint idx)
+{
+    const uvec2 pixelPos = GetPixelPos(idx);
+    return pixelPos.x + pixelPos.y * uint(screen_dims.x);
+}
+
+uint GroupScanExclusiveAdd(in uint localId, in uint groupSize)
+{
+    uint sum;
+
+    for (uint stride = 1; stride <= (groupSize >> 1); stride <<= 1)
+    {
+        if (localId < groupSize / (2 * stride))
+            ScanBuffer[2 * (localId + 1) * stride - 1] = ScanBuffer[2 * (localId + 1) * stride - 1] + ScanBuffer[(2 * localId + 1) * stride - 1];
+        barrier();
+    }
+
+    if (localId == 0)
+    {
+        sum = ScanBuffer[groupSize - 1];
+        ScanBuffer[groupSize - 1] = 0;
+    }
+    barrier();
+
+    for (uint stride = (groupSize >> 1); stride > 0; stride >>= 1)
+    {
+        if (localId < groupSize / (2 * stride))
+        {
+            const uint tmp = ScanBuffer[(2 * localId + 1) * stride - 1];
+            ScanBuffer[(2 * localId + 1) * stride - 1] = ScanBuffer[2 * (localId + 1) * stride - 1];
+            ScanBuffer[2 * (localId + 1) * stride - 1] = ScanBuffer[2 * (localId + 1) * stride - 1] + tmp;
+        }
+        barrier();
+    }
+
+    return sum;
+}
+
+uint Permute(in uint i, in uint l, in uint p)
+{
+    uint w = l - 1;
+    w |= w >> 1;
+    w |= w >> 2;
+    w |= w >> 4;
+    w |= w >> 8;
+    w |= w >> 16;
+    do
+    {
+        i ^= p;
+        i *= 0xe170893d;
+        i ^= p >> 16;
+        i ^= (i & w) >> 4;
+        i ^= p >> 8;
+        i *= 0x0929eb3f;
+        i ^= p >> 23;
+        i ^= (i & w) >> 1;
+        i *= 1 | p >> 27;
+        i *= 0x6935fa69;
+        i ^= (i & w) >> 11;
+        i *= 0x74dcb303;
+        i ^= (i & w) >> 2;
+        i *= 0x9e501cc3;
+        i ^= (i & w) >> 2;
+        i *= 0xc860a3df;
+        i &= w;
+        i ^= i >> 5;
+    }
+    while (i >= l);
+    return (i + p) % l;
+}
+
+float RandFloat(in uint i, in uint p)
+{
+    i ^= p;
+    i ^= i >> 17;
+    i ^= i >> 10;
+    i *= 0xb36534e5;
+    i ^= i >> 12;
+    i ^= i >> 21;
+    i *= 0x93fc4795;
+    i ^= 0xdf6e307f;
+    i ^= i >> 17;
+    i *= 1 | p >> 18;
+    return i * (1.0f / 4294967808.0f);
+}
+
+vec2 CMJ(in uint s, in uint n, in uint p)
+{
+    const uint sx = Permute(s % n, n, p * 0xa511e9b3);
+    const uint sy = Permute(s / n, n, p * 0x63d83595);
+    const float jx = RandFloat(s, p * 0xa399d265);
+    const float jy = RandFloat(s, p * 0x711ad6a5);
+
+    return vec2(
+        (s % n + (sy + jx) / n) / n,
+        (s / n + (sx + jy) / n) / n);
+}
+
+Sampler SamplerInit(in uint index, in uint frame, in uint offset)
+{
+    Sampler s;
+    uint rnd = random[index];
+    uint scramble = rnd * 0x1fe3434f * ((frame + 331 * rnd) / (CMJ_DIM * CMJ_DIM));
+    s.index = frame % (CMJ_DIM * CMJ_DIM);
+    s.dimension = 300 * offset + 5;
+    s.scramble = scramble;
+    return s;
+}
+
+vec2 Sample2D(inout Sampler s)
+{
+    vec2 result;
+    uint idx = Permute(s.index, CMJ_DIM * CMJ_DIM, 0xa399d265 * s.dimension * s.scramble);
+    result = CMJ(idx, CMJ_DIM, s.dimension++ * s.scramble);
+    return result;
+}
+
+vec3 GetOrthoVector(in vec3 n)
+{
+    vec3 p;
+
+    if (abs(n.z) > 0.0f)
+    {
+        float k = sqrt(n.y * n.y + n.z * n.z);
+        p.x = 0.0f;
+        p.y = -n.z / k;
+        p.z = n.y / k;
+    }
+    else
+    {
+        float k = sqrt(n.x * n.x + n.y * n.y);
+        p.x = n.y / k;
+        p.y = -n.x / k;
+        p.z = 0.0f;
+    }
+
+    return normalize(p);
+}
+
+vec3 MapToHemisphere(in vec2 s, in vec3 n, in float e)
+{
+    vec3 u = GetOrthoVector(n);
+    vec3 v = cross(u, n);
+    u = cross(n, v);
+
+    float r1 = s.x;
+    float r2 = s.y;
+
+    float sinpsi = sin(2.0f * PI * r1);
+    float cospsi = cos(2.0f * PI * r1);
+    float costheta = pow(1.0f - r2, 1.0f / (e + 1.0f));
+    float sintheta = sqrt(1.0f - costheta * costheta);
+
+    return normalize(u * sintheta * cospsi + v * sintheta * sinpsi + n * costheta);
+}
+
+void main()
+{
+    // Read the intersection data
+    const uint tid = gl_GlobalInvocationID.x;
+    const uint local_id = gl_LocalInvocationID.x;
+    const Hit hit = hits[tid];
+
+    // Initialize memory
+    Ray ray;
+    ray.max_t = 0.0f;
+
+    // Check if we've hit some geometry
+    if (hit.shape_id != INVALID_ADDR)
+    {
+        // Otherwise, load the vertices
+        Shape shape = hit.shape_id < 50331647 ? shapes[hit.shape_id] : shapes2[hit.shape_id - 50331647];
+        Vertex v0 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 0], shape.transform);
+        Vertex v1 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 1], shape.transform);
+        Vertex v2 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 2], shape.transform);
+
+        // Interpolate the surface information
+        vec3 position = (1.0f - hit.uv.x - hit.uv.y) * v0.position + hit.uv.x * v1.position + hit.uv.y * v2.position;
+        vec3 normal = normalize((1.0f - hit.uv.x - hit.uv.y) * v0.normal + hit.uv.x * v1.normal + hit.uv.y * v2.normal);
+        vec3 geo_normal = normalize(cross(v1.position - v0.position, v2.position - v0.position));
+
+        // Generate a random direction
+        if (dot(geo_normal, cameraRays[tid].direction) > 0.0f)
+        {
+            normal = -normal;
+            geo_normal = -geo_normal;
+        }
+        Sampler s = SamplerInit(GetPixelIdx(tid), floatBitsToUint(eye.w), 0);
+        vec3 direction = MapToHemisphere(Sample2D(s), normal, 1.0f);
+
+        // Populate the ambient occlusion ray
+        if (!any(isnan(direction)))
+        {
+            ray.origin = position + 0.001f * geo_normal;
+            ray.direction = direction;
+            ray.max_t = AO_RADIUS;
+            ray.time = 0.0f;
+        }
+    }
+
+    // Calculate scatter offset
+    ScanBuffer[local_id] = (ray.max_t > 0.0f ? 1 : 0);
+    barrier();  // sync threads
+    uint ray_count = GroupScanExclusiveAdd(local_id, GROUP_SIZE);
+    if (local_id == 0)
+        RayOffset = atomicAdd(rayCount, ray_count);
+    barrier();  // sync threads
+    uint ray_index = RayOffset + ScanBuffer[local_id];
+
+    // Append the ray
+    if (ray.max_t > 0.0f)
+    {
+        ids[ray_index] = GetPixelIdx(tid);
+        rays[ray_index] = ray;
+    }
+}

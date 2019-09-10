@@ -30,4 +30,5 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 # TensorFlow-based model runner
 
-add_subdirectory(model_runner)
+# add_subdirectory(model_runner)
+add_subdirectory(path_tracer)
