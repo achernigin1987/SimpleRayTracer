@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "VulkanManager.h"
+#include "AccelerationStructureController.h"
 
 namespace PathTracer
 {
@@ -73,5 +74,11 @@ namespace PathTracer
         window_ = nullptr;
 
         return EXIT_SUCCESS;
+    }
+    VkResult Application::Init(int32_t argc, char const ** argv)
+    {
+
+
+        return VK_SUCCESS;
     }
 }

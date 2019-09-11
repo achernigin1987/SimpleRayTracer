@@ -144,7 +144,7 @@ namespace
         // Find a suitable Vulkan device
         auto physical_device_index = 0u;
         bool device_ok = false;
-        
+
         for (; physical_device_index < physical_devices.size(); ++physical_device_index)
         {
             VkPhysicalDevice physical_device = physical_devices[physical_device_index];
@@ -482,56 +482,38 @@ namespace PathTracer
 
         // Set the initial image layouts
         {
-            VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+            CommandBuffer command_buffer(command_pool_, device_);
+            command_buffer.Begin();
 
-            VkCommandBufferAllocateInfo alloc_info = {};
-            alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            alloc_info.commandPool = command_pool_;
-            alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            alloc_info.commandBufferCount = 1;
-            vkAllocateCommandBuffers(device_, &alloc_info, &command_buffer);
-
-            VkCommandBufferBeginInfo begin_info = {};
-            begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            vkBeginCommandBuffer(command_buffer, &begin_info);
+            uint32_t i = 0;
+            std::vector<VkImageMemoryBarrier> image_memory_barriers(swap_chain_images_.size());
+            for (auto& image_memory_barrier : image_memory_barriers)
             {
-                uint32_t i = 0;
-                std::vector<VkImageMemoryBarrier> image_memory_barriers(swap_chain_images_.size());
-                for (auto& image_memory_barrier : image_memory_barriers)
-                {
-                    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                    image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                    image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                    image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    image_memory_barrier.image = swap_chain_images_[i++];
-                    image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                    image_memory_barrier.subresourceRange.levelCount = 1;
-                    image_memory_barrier.subresourceRange.layerCount = 1;
-                }
-                vkCmdPipelineBarrier(
-                    command_buffer,
-                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                    VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                    0,
-                    0,
-                    nullptr,
-                    0,
-                    nullptr,
-                    static_cast<uint32_t>(image_memory_barriers.size()),
-                    image_memory_barriers.data());
+                image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+                image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                image_memory_barrier.image = swap_chain_images_[i++];
+                image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                image_memory_barrier.subresourceRange.levelCount = 1;
+                image_memory_barrier.subresourceRange.layerCount = 1;
             }
-            vkEndCommandBuffer(command_buffer);
+            vkCmdPipelineBarrier(
+                command_buffer,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                static_cast<uint32_t>(image_memory_barriers.size()),
+                image_memory_barriers.data());
 
-            VkSubmitInfo submitInfo = {};
-            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submitInfo.commandBufferCount = 1;
-            submitInfo.pCommandBuffers = &command_buffer;
-            vkQueueSubmit(queue_, 1, &submitInfo, VK_NULL_HANDLE);
-            vkQueueWaitIdle(queue_);
+            command_buffer.End();
 
-            vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer);
+            command_buffer.SubmitWait(queue_);
         }
 
         return true;
@@ -548,7 +530,7 @@ namespace PathTracer
             vkDestroySemaphore(device_, semaphore, nullptr);
         }
         vkDestroyCommandPool(device_, command_pool_, nullptr);
-        
+
         vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
         vkDestroyPipelineCache(device_, pipeline_cache_, nullptr);
         vkDestroySwapchainKHR(device_, swap_chain_, nullptr);
@@ -566,6 +548,42 @@ namespace PathTracer
         VkSemaphore& semaphore = semaphores_[semaphore_index_];
         semaphore_index_ = (semaphore_index_ + 1) % static_cast<uint32_t>(semaphores_.size());
         return semaphore;
+    }
+
+    std::uint32_t  Application::VulkanManager::FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const
+    {
+        VkPhysicalDeviceMemoryProperties mem_props;
+        vkGetPhysicalDeviceMemoryProperties(device_.physical_device_, &mem_props);
+
+        for (auto i = 0u; i < mem_props.memoryTypeCount; i++)
+        {
+            auto& memory_type = mem_props.memoryTypes[i];
+            if ((memory_type.propertyFlags & flags) == flags)
+            {
+                return i;
+            }
+        }
+
+        throw std::runtime_error("Cannot find specified memory type");
+    }
+
+    VkDeviceMemory Application::VulkanManager::AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const
+    {
+        VkMemoryAllocateInfo info;
+        info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        info.pNext = nullptr;
+        info.memoryTypeIndex = memory_type_index;
+        info.allocationSize = size;
+
+        VkDeviceMemory memory = nullptr;
+        auto res = vkAllocateMemory(device_.device_, &info, nullptr, &memory);
+
+        if (res != VK_SUCCESS)
+        {
+            throw std::runtime_error("Cannot allocate device memory");
+        }
+
+        return memory;
     }
 
 }

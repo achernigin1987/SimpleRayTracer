@@ -85,10 +85,6 @@ namespace PathTracer
         int32_t Run(int32_t argc, char const** argv);
 
     private:
-
-        bool InitVulkan(GLFWwindow* window);
-        void TermVulkan();
-
         // Application interface
         virtual VkResult Init(int32_t argc, char const** argv);
         virtual VkResult Update();
@@ -99,8 +95,9 @@ namespace PathTracer
         VkSemaphore& WaitSemaphore();
 
         struct VulkanManager;
-
-        std::unique_ptr<VulkanManager> vulkan_manager_;
+        std::shared_ptr<VulkanManager> vulkan_manager_;
+        class AccelerationStructureController;
+        std::unique_ptr<AccelerationStructureController> as_controller_;
         std::unique_ptr<Window> window_;
     };
 }

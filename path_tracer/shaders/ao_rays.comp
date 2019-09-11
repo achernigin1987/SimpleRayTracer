@@ -50,21 +50,12 @@ struct Sampler
     uint dimension;
 };
 
-
-struct Transform
-{
-    vec4 m0;
-    vec4 m1;
-    vec4 m2;
-};
-
 struct Shape
 {
     uint count;
     uint first_index;
     uint base_vertex;
     uint padding;
-    Transform transform;
 };
 
 struct Vertex
@@ -93,24 +84,13 @@ layout(binding = 4) buffer Hits       { Hit   hits[];       };
 layout(binding = 5) buffer CameraRays { Ray   cameraRays[]; };
 layout(binding = 6) buffer Random     { uint  random[];     };
 layout(binding = 7) buffer Shapes     { Shape shapes[];     };
-layout(binding = 8) buffer Shapes2    { Shape shapes2[];     };
-layout(binding = 9) buffer Indices    { uint  indices[];    };
-layout(binding = 10) buffer Vertices  { float vertices[];   };
+layout(binding = 8) buffer Indices    { uint  indices[];    };
+layout(binding = 9) buffer Vertices   { float vertices[];   };
 
 shared uint ScanBuffer[GROUP_SIZE];
 shared uint RayOffset;
 
-vec3 TransformPoint(vec3 p, Transform transform)
-{
-    vec3 result;
-    result.x = dot(transform.m0.xyz, p) + transform.m0.w;
-    result.y = dot(transform.m1.xyz, p) + transform.m1.w;
-    result.z = dot(transform.m2.xyz, p) + transform.m2.w;
-
-    return result;
-}
-
-Vertex LoadVertex(in uint index, in Transform transform)
+Vertex LoadVertex(in uint index)
 {
     Vertex vertex;
 
@@ -119,12 +99,10 @@ Vertex LoadVertex(in uint index, in Transform transform)
     vertex.position.x = vertices[i++];
     vertex.position.y = vertices[i++];
     vertex.position.z = vertices[i++];
-    vertex.position = TransformPoint(vertex.position, transform);
 
     vertex.normal.x = vertices[i++];
     vertex.normal.y = vertices[i++];
     vertex.normal.z = vertices[i++];
-    vertex.normal = TransformPoint(vertex.normal, transform);
 
     vertex.texcoords.x = vertices[i++];
     vertex.texcoords.y = vertices[i++];
@@ -318,10 +296,10 @@ void main()
     if (hit.shape_id != INVALID_ADDR)
     {
         // Otherwise, load the vertices
-        Shape shape = hit.shape_id < 50331647 ? shapes[hit.shape_id] : shapes2[hit.shape_id - 50331647];
-        Vertex v0 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 0], shape.transform);
-        Vertex v1 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 1], shape.transform);
-        Vertex v2 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 2], shape.transform);
+        Shape shape = shapes[hit.shape_id];
+        Vertex v0 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 0]);
+        Vertex v1 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 1]);
+        Vertex v2 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 2]);
 
         // Interpolate the surface information
         vec3 position = (1.0f - hit.uv.x - hit.uv.y) * v0.position + hit.uv.x * v1.position + hit.uv.y * v2.position;
