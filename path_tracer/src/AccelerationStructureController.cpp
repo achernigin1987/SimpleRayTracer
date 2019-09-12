@@ -27,10 +27,6 @@ namespace PathTracer
     }
     Application::AccelerationStructureController::~AccelerationStructureController()
     {
-        if (accel_buffer_ != VK_NULL_HANDLE)
-        {
-            vkFreeMemory(vulkan_manager_->device_, accel_buffer_, nullptr);
-        }
         // Terminate RadeonRays
         for (auto bottom_acc : bottom_level_accel_)
         {
@@ -44,6 +40,11 @@ namespace PathTracer
             rrDestroyAccelerationStructure(context_, top_level_accel_);
         }
         rrDestroyContext(context_);
+        // Free memory
+        if (accel_buffer_ != VK_NULL_HANDLE)
+        {
+            vkFreeMemory(vulkan_manager_->device_, accel_buffer_, nullptr);
+        }
     }
 
     bool Application::AccelerationStructureController::BuildAccelerationStructure(Scene const& scene)

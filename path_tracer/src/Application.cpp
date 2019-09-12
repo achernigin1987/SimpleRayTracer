@@ -1,12 +1,23 @@
+#define _USE_MATH_DEFINES
+
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+
 #include "Application.h"
-#include "VulkanManager.h"
 #include "AccelerationStructureController.h"
+#include "SceneController.h"
 
 namespace PathTracer
 {
 
     Application::Application()
         : vulkan_manager_(std::make_unique<VulkanManager>())
+        , orbit_(glm::vec3(500.0f, 400.0f, 0.0f), glm::vec3(-200.0f, 300.0f, 0.0f))
+        , view_projection_(0.0f)
+        , sample_count_(0)
     {}
 
     Application::~Application()
@@ -67,8 +78,8 @@ namespace PathTracer
         vkQueueWaitIdle(vulkan_manager_->queue_);
 
         // Terminate the application
-        Terminate();
         vulkan_manager_->Terminate();
+        as_controller_ = nullptr;
 
         // Tear down the window
         window_ = nullptr;
@@ -77,8 +88,164 @@ namespace PathTracer
     }
     VkResult Application::Init(int32_t argc, char const ** argv)
     {
+        std::string filename;
+        for (int32_t i = 1; i < argc; i++)
+        {
+            auto parameter = std::string(argv[i]);
+            if (parameter == "--scene" || parameter == "-s")
+            {
+                if (i + 1 < argc)
+                {
+                    filename = argv[i + 1];
+                    break;
+                }
+                else
+                {
+                    throw std::runtime_error("Path to scene not set");
+                }
+            }
+        }
 
+        as_controller_ = std::make_unique<AccelerationStructureController>(vulkan_manager_);
+
+        Scene scene;
+        scene.LoadFile(filename.c_str());
+        as_controller_->BuildAccelerationStructure(scene);
+
+        //InitExample(scene);
+        InitCallbacks();
 
         return VK_SUCCESS;
+    }
+
+    VkResult Application::Update()
+    {
+        // Compute view/projection matrices
+        auto near_far = glm::vec2(0.1f, 10000.0f);
+        auto view = glm::lookAt(orbit_.Eye(), orbit_.Center(), orbit_.Up());
+        auto screen_dims = glm::vec4(static_cast<float>(window_->window_width_),
+                                     static_cast<float>(window_->window_height_),
+                                     1.0f / static_cast<float>(window_->window_width_),
+                                     1.0f / static_cast<float>(window_->window_height_));
+        auto proj = glm::perspective(60.0f * static_cast<float>(M_PI) / 180.0f,
+                                     screen_dims.x / screen_dims.y, near_far.x, near_far.y);
+        auto view_projection = proj * view;
+        auto view_proj_inv = glm::inverse(view_projection);
+
+        // Reset accumulation if camera has moved
+        if (view_projection != view_projection_)
+        {
+            sample_count_ = 0;
+        }
+        view_projection_ = view_projection;
+
+
+        return VkResult();
+    }
+
+    // A helper for keeping track of the mouse state
+    class MouseState
+    {
+    public:
+        // Non-copyable
+        MouseState(MouseState const&) = delete;
+        MouseState& operator =(MouseState const&) = delete;
+        MouseState(MouseState&&) = delete;
+        MouseState& operator=(MouseState&&) = delete;
+        static MouseState& Get()
+        {
+            static MouseState state;
+            return state;
+        }
+    private:
+        // Constructor
+        MouseState()
+            : pressed_buttons_(0)
+        {
+        }
+    public:
+        // A bitmask of the currently pressed mouse buttons
+        uint32_t pressed_buttons_;
+        // The previous mouse on-screen position
+        glm::vec2 previous_position_;
+    };
+
+    // Binds the callbacks for listening to the user inputs
+    VkResult Application::InitCallbacks()
+    {
+
+        glfwSetMouseButtonCallback(*window_,
+                                   [](GLFWwindow *, int32_t button, int32_t action, int32_t modifiers)
+        {
+            GetAppInstance().OnMousePress(button, action, modifiers);
+        });
+
+        glfwSetCursorPosCallback(*window_,
+                                 [](GLFWwindow *, double x_pos, double y_pos)
+        {
+            GetAppInstance().OnMouseMove(glm::vec2(static_cast<float>(x_pos), static_cast<float>(y_pos)));
+        });
+
+        glfwSetScrollCallback(*window_,
+                              [](GLFWwindow *, double, double y_offset)
+        {
+            GetAppInstance().OnMouseScroll(static_cast<float>(y_offset));
+        });
+
+        return VK_SUCCESS;
+    }
+
+
+    // Callback function for scrolling events
+    void Application::OnMouseScroll(float scroll)
+    {
+        auto distance_to_pivot_point = glm::length(orbit_.Eye() - orbit_.Center());
+        auto distance = scroll * distance_to_pivot_point / 20.0f;
+        orbit_.MoveForward(-distance);
+    }
+
+    // Callback function for motion events
+    void Application::OnMouseMove(glm::vec2 const& position)
+    {
+        // Compute mouse motion
+        auto mouse_motion = position - MouseState::Get().previous_position_;
+        MouseState::Get().previous_position_ = position;
+        if (!MouseState::Get().pressed_buttons_)
+            return;
+
+        // Evaluate camera animation
+        auto distance_to_pivot_point = glm::length(orbit_.Eye() - orbit_.Center());
+        auto distance_x = mouse_motion.x * distance_to_pivot_point / 1500.0f;
+        auto distance_y = mouse_motion.y * distance_to_pivot_point / 1500.0f;
+        auto radians_x = mouse_motion.x / 500.0f;
+        auto radians_y = mouse_motion.y / 500.0f;
+
+        // Orbit the camera
+        if (MouseState::Get().pressed_buttons_ & (1u << GLFW_MOUSE_BUTTON_LEFT))
+        {
+            orbit_.Rotate(radians_x, -radians_y);
+        }
+        if (MouseState::Get().pressed_buttons_ & (1u << GLFW_MOUSE_BUTTON_MIDDLE))
+        {
+            orbit_.MovePerpendicular(distance_x, -distance_y);
+        }
+        if (MouseState::Get().pressed_buttons_ & (1u << GLFW_MOUSE_BUTTON_RIGHT))
+        {
+            orbit_.MoveForward(-2.0f * distance_y);
+        }
+    }
+
+    // Callback function for input events
+    void Application::OnMousePress(int32_t button, int32_t action, int32_t)
+    {
+        auto mouse_flag = (1u << button);
+        if (action == GLFW_PRESS)
+        {
+            MouseState::Get().pressed_buttons_ |= mouse_flag;
+        }
+        else
+        {
+            MouseState::Get().pressed_buttons_ &= ~mouse_flag;
+        }
     }
 }

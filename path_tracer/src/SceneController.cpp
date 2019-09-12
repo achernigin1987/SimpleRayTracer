@@ -1,8 +1,9 @@
 #pragma once
 
 #include "SceneController.h"
-#include <fstream>
 #include <tiny_obj_loader.h>
+#include <algorithm>
+#include <iostream>
 
 namespace PathTracer
 {
@@ -56,16 +57,11 @@ namespace PathTracer
 
     using ObjVertex = float[12];
 
-    // Constructor
-    Scene::Scene()
-    {
-    }
+    Scene::Scene() = default;
 
     // Loads a file into the scene
     bool Scene::LoadFile(char const* filename)
     {
-        assert(filename);
-
         // Handle file type
         const std::string fileExtension = GetFileExtension(filename);
         if (fileExtension == ".obj")

@@ -1,22 +1,9 @@
 #pragma once
 
-#define _USE_MATH_DEFINES
-
-#include <cassert>
 #include <cmath>
 #include <cstdint>
-#include <iostream>
 #include <string>
 #include <vector>
-#include <array>
-#include <unordered_map>
-
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 
 namespace PathTracer
 {
@@ -24,13 +11,13 @@ namespace PathTracer
 
     class Scene
     {
+    public:
         // Non-copyable
         Scene(Scene const&) = delete;
         Scene& operator =(Scene const&) = delete;
         Scene(Scene&&) = delete;
         Scene& operator=(Scene&&) = delete;
 
-    public:
         Scene();
 
         uint32_t GetMeshCount() const;

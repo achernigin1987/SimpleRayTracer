@@ -14,6 +14,9 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "Orbit.h"
+#include "VulkanManager.h"
+
 namespace PathTracer
 {
     struct Window
@@ -85,19 +88,40 @@ namespace PathTracer
         int32_t Run(int32_t argc, char const** argv);
 
     private:
+        class AccelerationStructureController;
+
         // Application interface
-        virtual VkResult Init(int32_t argc, char const** argv);
-        virtual VkResult Update();
-        virtual VkResult Render();
-        virtual VkResult Terminate();
+        VkResult Init(int32_t argc, char const** argv);
+        VkResult Update();
+        VkResult Render();
+        //VkResult InitExample(Scene const& scene);
+        VkResult InitCallbacks();
+
+        // View parameters
+        struct Params
+        {
+            float eye_[4];
+            float center_[4];
+            float near_far_[4];
+            float screen_dims_[4];
+            float view_proj_inv_[16];
+        };
+
+        void OnMouseScroll(float scroll);
+        void OnMouseMove(glm::vec2 const& position);
+        void OnMousePress(int32_t button, int32_t action, int32_t modifiers);
 
         VkSemaphore& SignalSemaphore();
         VkSemaphore& WaitSemaphore();
 
-        struct VulkanManager;
         std::shared_ptr<VulkanManager> vulkan_manager_;
-        class AccelerationStructureController;
         std::unique_ptr<AccelerationStructureController> as_controller_;
         std::unique_ptr<Window> window_;
+        // The camera controller
+        Orbit orbit_;
+        // The view-projection matrix
+        glm::mat4 view_projection_;
+        // The number of samples
+        uint32_t sample_count_;
     };
 }

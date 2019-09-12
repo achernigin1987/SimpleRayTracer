@@ -283,7 +283,7 @@ namespace
 
 namespace PathTracer
 {
-    bool Application::VulkanManager::Init(Window& window)
+    bool VulkanManager::Init(Window& window)
     {
         if (!window) return false;
 
@@ -519,7 +519,7 @@ namespace PathTracer
         return true;
     }
 
-    void Application::VulkanManager::Terminate()
+    void VulkanManager::Terminate()
     {
         if (callback)
         {
@@ -539,18 +539,18 @@ namespace PathTracer
         vkDestroyInstance(instance_, nullptr);
     }
 
-    VkSemaphore& Application::VulkanManager::SignalSemaphore()
+    VkSemaphore& VulkanManager::SignalSemaphore()
     {
         return semaphores_[semaphore_index_];
     }
-    VkSemaphore& Application::VulkanManager::WaitSemaphore()
+    VkSemaphore& VulkanManager::WaitSemaphore()
     {
         VkSemaphore& semaphore = semaphores_[semaphore_index_];
         semaphore_index_ = (semaphore_index_ + 1) % static_cast<uint32_t>(semaphores_.size());
         return semaphore;
     }
 
-    std::uint32_t  Application::VulkanManager::FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const
+    std::uint32_t  VulkanManager::FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const
     {
         VkPhysicalDeviceMemoryProperties mem_props;
         vkGetPhysicalDeviceMemoryProperties(device_.physical_device_, &mem_props);
@@ -567,7 +567,7 @@ namespace PathTracer
         throw std::runtime_error("Cannot find specified memory type");
     }
 
-    VkDeviceMemory Application::VulkanManager::AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const
+    VkDeviceMemory VulkanManager::AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const
     {
         VkMemoryAllocateInfo info;
         info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -586,4 +586,144 @@ namespace PathTracer
         return memory;
     }
 
+    // Encodes the commands for blitting to the swap chain images
+    std::vector<CommandBuffer> VulkanManager::CreateBlitCommandBuffers(VkBuffer buffer, Window& window)
+    {
+        std::vector<CommandBuffer> blit_command_buffers;
+        uint32_t swap_chain_image_index = 0;
+        for (size_t i = 0; i < swap_chain_images_.size(); i++)
+        {
+            blit_command_buffers.push_back(CommandBuffer(command_pool_, device_));
+            blit_command_buffers.back().Begin();
+
+            // Transition image for blit
+            VkImageMemoryBarrier imageMemoryBarrier = {};
+            imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            imageMemoryBarrier.image = swap_chain_images_[swap_chain_image_index];
+            imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageMemoryBarrier.subresourceRange.levelCount = 1;
+            imageMemoryBarrier.subresourceRange.layerCount = 1;
+            vkCmdPipelineBarrier(
+                blit_command_buffers.back().Get(),
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &imageMemoryBarrier);
+
+            // Copy results to swap chain image
+            VkBufferImageCopy buffer_image_copy = {};
+            buffer_image_copy.bufferRowLength = window.window_width_ * sizeof(uint32_t) >> 2;
+            buffer_image_copy.bufferImageHeight = window.window_height_;
+            buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            buffer_image_copy.imageSubresource.layerCount = 1;
+            buffer_image_copy.imageExtent.width = window.window_width_;
+            buffer_image_copy.imageExtent.height = window.window_height_;
+            buffer_image_copy.imageExtent.depth = 1;
+            vkCmdCopyBufferToImage(
+                blit_command_buffers.back().Get(),
+                buffer,
+                swap_chain_images_[swap_chain_image_index],
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &buffer_image_copy);
+
+            // Transition to present layout
+            imageMemoryBarrier = {};
+            imageMemoryBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            imageMemoryBarrier.image = swap_chain_images_[swap_chain_image_index++];
+            imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageMemoryBarrier.subresourceRange.levelCount = 1;
+            imageMemoryBarrier.subresourceRange.layerCount = 1;
+            vkCmdPipelineBarrier(
+                blit_command_buffers.back().Get(),
+                VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                0,
+                0,
+                nullptr,
+                0,
+                nullptr,
+                1,
+                &imageMemoryBarrier);
+
+            blit_command_buffers.back().End();
+        }
+
+
+        return blit_command_buffers;
+    }
+    CommandBuffer::CommandBuffer(VkCommandPool command_pool, VkDevice device)
+    {
+        VkCommandBuffer raw_command_buffer = nullptr;
+        VkCommandBufferAllocateInfo command_buffer_info;
+        command_buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_buffer_info.pNext = nullptr;
+        command_buffer_info.commandPool = command_pool;
+        command_buffer_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_buffer_info.commandBufferCount = 1u;
+
+        auto status = vkAllocateCommandBuffers(device,
+                                               &command_buffer_info,
+                                               &raw_command_buffer);
+        if (status != VK_SUCCESS)
+        {
+            throw std::runtime_error("Cannot allocate command buffer");
+        }
+
+        command_buffer_ = VkScopedObject<VkCommandBuffer>(raw_command_buffer,
+                                                          [&](VkCommandBuffer command_buffer)
+        {
+            vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+        });
+    }
+    void CommandBuffer::Begin() const
+    {
+        VkCommandBufferBeginInfo begin_info;
+        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin_info.pNext = nullptr;
+        begin_info.flags = 0;
+        begin_info.pInheritanceInfo = nullptr;
+
+        vkBeginCommandBuffer(command_buffer_.get(), &begin_info);
+    }
+    void CommandBuffer::End() const
+    {
+        vkEndCommandBuffer(command_buffer_.get());
+    }
+    VkResult CommandBuffer::Submit(VkQueue queue, VkSemaphore * wait, uint32_t wait_count, VkSemaphore * signal, uint32_t signal_count, VkFence fence)
+    {
+        VkCommandBuffer cmd_buf = command_buffer_.get();
+        VkSubmitInfo submit_info;
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.pNext = nullptr;
+        submit_info.waitSemaphoreCount = wait_count;
+        submit_info.pWaitSemaphores = wait;
+        submit_info.pWaitDstStageMask = nullptr;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cmd_buf;
+        submit_info.signalSemaphoreCount = signal_count;
+        submit_info.pSignalSemaphores = signal;
+
+        return vkQueueSubmit(queue, 1, &submit_info, fence);
+    }
+    VkResult CommandBuffer::SubmitWait(VkQueue queue, VkSemaphore * wait, uint32_t wait_count, VkSemaphore * signal, uint32_t signal_count, VkFence fence)
+    {
+        auto res = Submit(queue, wait, wait_count, signal, signal_count, fence);
+        if (res != VK_SUCCESS)
+        {
+            return res;
+        }
+        return vkQueueWaitIdle(queue);
+    }
 }
