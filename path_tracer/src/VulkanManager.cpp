@@ -586,6 +586,155 @@ namespace PathTracer
         return memory;
     }
 
+    VkScopedObject<VkBuffer> VulkanManager::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage) const
+    {
+        VkBufferCreateInfo buffer_create_info;
+        buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_create_info.pNext = nullptr;
+        buffer_create_info.usage = usage;
+        buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        buffer_create_info.size = size;
+        buffer_create_info.flags = 0;
+        buffer_create_info.queueFamilyIndexCount = 0u;
+        buffer_create_info.pQueueFamilyIndices = nullptr;
+
+        VkBuffer buffer = nullptr;
+        auto res = vkCreateBuffer(device_, &buffer_create_info, nullptr, &buffer);
+
+        if (res != VK_SUCCESS)
+        {
+            throw std::runtime_error("Cannot create Vulkan buffer");
+        }
+
+        return VkScopedObject<VkBuffer>(buffer, [this](VkBuffer buffer)
+        {
+            vkDestroyBuffer(device_, buffer, nullptr);
+        });
+    }
+
+    VkMemoryRequirements VulkanManager::GetBufferMemoryRequirements(VkBuffer buffer) const
+    {
+        VkMemoryRequirements mem_reqs;
+        vkGetBufferMemoryRequirements(device_, buffer, &mem_reqs);
+        return mem_reqs;
+    }
+
+    void VulkanManager::BindBufferMemory(VkBuffer buffer,
+                                       VkDeviceMemory memory,
+                                       VkDeviceSize offset) const
+    {
+        auto res = vkBindBufferMemory(device_,
+                                      buffer,
+                                      memory,
+                                      offset);
+
+        if (res != VK_SUCCESS)
+        {
+            throw std::runtime_error("Cannot bind buffer memory");
+        }
+    }
+
+
+    void* VulkanManager::MapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const
+    {
+        void* mapped_ptr = nullptr;
+
+        auto res = vkMapMemory(device_, memory, offset, size, 0, &mapped_ptr);
+
+        if (res != VK_SUCCESS)
+        {
+            throw std::runtime_error("GPUServices: Cannot map host visible buffer");
+        }
+
+        return mapped_ptr;
+    }
+
+    void VulkanManager::UnmapMemory(VkDeviceMemory memory, VkDeviceSize, VkDeviceSize) const
+    {
+        vkUnmapMemory(device_, memory);
+    }
+
+    void VulkanManager::EncodeCopyBuffer(VkBuffer src_buffer,
+                                       VkBuffer dst_buffer,
+                                       VkDeviceSize src_offset,
+                                       VkDeviceSize dst_offset,
+                                       VkDeviceSize size,
+                                       VkCommandBuffer& command_buffer) const
+    {
+        VkBufferCopy copy_region;
+        copy_region.srcOffset = src_offset;
+        copy_region.dstOffset = dst_offset;
+        copy_region.size = size;
+        vkCmdCopyBuffer(command_buffer, src_buffer, dst_buffer, 1u, &copy_region);
+    }
+
+    void VulkanManager::EncodeBufferBarrier(VkBuffer buffer,
+                                          VkAccessFlags src_access,
+                                          VkAccessFlags dst_access,
+                                          VkPipelineStageFlags src_stage,
+                                          VkPipelineStageFlags dst_stage,
+                                          VkCommandBuffer& command_buffer) const
+    {
+        VkBufferMemoryBarrier barrier;
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        barrier.pNext = nullptr;
+        barrier.buffer = buffer;
+        barrier.offset = 0u;
+        barrier.size = VK_WHOLE_SIZE;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.srcAccessMask = src_access;
+        barrier.dstAccessMask = dst_access;
+
+        vkCmdPipelineBarrier(command_buffer,
+                             src_stage,
+                             dst_stage,
+                             0u,
+                             0u,
+                             nullptr,
+                             1u,
+                             &barrier,
+                             0u,
+                             nullptr);
+    }
+
+    void VulkanManager::EncodeBufferBarriers(VkBuffer const* buffers,
+                                           std::uint32_t buffer_count,
+                                           VkAccessFlags src_access,
+                                           VkAccessFlags dst_access,
+                                           VkPipelineStageFlags src_stage,
+                                           VkPipelineStageFlags dst_stage,
+                                           VkCommandBuffer& command_buffer) const
+    {
+        VkBufferMemoryBarrier* barriers = static_cast<VkBufferMemoryBarrier*>(
+            alloca(buffer_count * sizeof(VkBufferMemoryBarrier)));
+
+        for (auto i = 0u; i < buffer_count; ++i)
+        {
+            auto& barrier = barriers[i];
+            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.pNext = nullptr;
+            barrier.buffer = buffers[i];
+            barrier.offset = 0u;
+            barrier.size = VK_WHOLE_SIZE;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.srcAccessMask = src_access;
+            barrier.dstAccessMask = dst_access;
+        }
+
+        vkCmdPipelineBarrier(command_buffer,
+                             src_stage,
+                             dst_stage,
+                             0u,
+                             0u,
+                             nullptr,
+                             buffer_count,
+                             barriers,
+                             0u,
+                             nullptr);
+    }
+
     // Encodes the commands for blitting to the swap chain images
     std::vector<CommandBuffer> VulkanManager::CreateBlitCommandBuffers(VkBuffer buffer, Window& window)
     {

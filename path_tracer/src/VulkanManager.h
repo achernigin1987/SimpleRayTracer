@@ -57,7 +57,31 @@ namespace PathTracer
         VkSemaphore& WaitSemaphore();
         std::uint32_t FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const;
         VkDeviceMemory AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const;
+        VkScopedObject<VkBuffer> CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage) const;
         std::vector<CommandBuffer> CreateBlitCommandBuffers(VkBuffer buffer, Window& window);
+        VkMemoryRequirements GetBufferMemoryRequirements(VkBuffer buffer) const;
+        void BindBufferMemory(VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset) const;
+        void* MapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const;
+        void UnmapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const;
+        void EncodeCopyBuffer(VkBuffer src_buffer,
+                              VkBuffer dst_buffer,
+                              VkDeviceSize src_offset,
+                              VkDeviceSize dst_offset,
+                              VkDeviceSize size,
+                              VkCommandBuffer& command_buffer) const;
+        void EncodeBufferBarrier(VkBuffer buffer,
+                                 VkAccessFlags src_access,
+                                 VkAccessFlags dst_access,
+                                 VkPipelineStageFlags src_stage,
+                                 VkPipelineStageFlags dst_stage,
+                                 VkCommandBuffer& command_buffer) const;
+        void EncodeBufferBarriers(VkBuffer const* buffers,
+                                  std::uint32_t buffer_count,
+                                  VkAccessFlags src_access,
+                                  VkAccessFlags dst_access,
+                                  VkPipelineStageFlags src_stage,
+                                  VkPipelineStageFlags dst_stage,
+                                  VkCommandBuffer& command_buffer) const;
 
         VulkanDevice                device_;
         VkInstance                  instance_ = VK_NULL_HANDLE;

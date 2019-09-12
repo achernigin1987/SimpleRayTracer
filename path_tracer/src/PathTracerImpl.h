@@ -23,16 +23,27 @@ namespace PathTracer
         uint32_t padding_;
     };
 
+    // View parameters
+    struct Params
+    {
+        float eye_[4];
+        float center_[4];
+        float near_far_[4];
+        float screen_dims_[4];
+        float view_proj_inv_[16];
+    };
+
     class PathTracerImpl
     {
     public:
         PathTracerImpl() = default;
-        void Init(Scene const& scene, RrAccelerationStructure top_level_structure, std::shared_ptr<VulkanManager> manager);
+        void Init(Scene const& scene, RrAccelerationStructure top_level_structure, uint32_t num_rays, std::shared_ptr<VulkanManager> manager);
         CommandBuffer PreparePathTraceCommands();
 
     private:
         std::shared_ptr<VulkanManager> manager_ = nullptr;
         RrAccelerationStructure top_level_structure_ = VK_NULL_HANDLE;
+        VkDeviceMemory memory_ = VK_NULL_HANDLE;
         VkBuffer indices_ = VK_NULL_HANDLE;
         VkBuffer vertices_ = VK_NULL_HANDLE;
         VkBuffer shapes_ = VK_NULL_HANDLE;

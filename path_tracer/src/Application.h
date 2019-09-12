@@ -97,16 +97,6 @@ namespace PathTracer
         //VkResult InitExample(Scene const& scene);
         VkResult InitCallbacks();
 
-        // View parameters
-        struct Params
-        {
-            float eye_[4];
-            float center_[4];
-            float near_far_[4];
-            float screen_dims_[4];
-            float view_proj_inv_[16];
-        };
-
         void OnMouseScroll(float scroll);
         void OnMouseMove(glm::vec2 const& position);
         void OnMousePress(int32_t button, int32_t action, int32_t modifiers);
