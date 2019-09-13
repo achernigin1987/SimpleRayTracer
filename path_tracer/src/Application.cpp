@@ -71,7 +71,6 @@ namespace PathTracer
                 std::cerr << "Fatal error: Unable to present" << std::endl;
                 break;
             }
-            //Pipeline::AdvancePool();
         }
 
         // Wait until the device has completed all the work
@@ -111,8 +110,10 @@ namespace PathTracer
         Scene scene;
         scene.LoadFile(filename.c_str());
         as_controller_->BuildAccelerationStructure(scene);
+        path_tracer_ = std::make_unique<PathTracerImpl>(vulkan_manager_);
+        path_tracer_->Init(scene, as_controller_->Get(), as_controller_->GetContext(), window_->window_width_ * window_->window_height_);
+        blit_cmd_buffers_ = vulkan_manager_->CreateBlitCommandBuffers(path_tracer_->GetColor(), *window_);
 
-        //InitExample(scene);
         InitCallbacks();
 
         return VK_SUCCESS;
@@ -139,8 +140,46 @@ namespace PathTracer
         }
         view_projection_ = view_projection;
 
+        Params params;
+        memcpy(params.eye_, &orbit_.Eye()[0], 3 * sizeof(float));
+        params.eye_[3] = static_cast<float>(sample_count_++);
+        memcpy(params.center_, &orbit_.Center()[0], 3 * sizeof(float));
+        memcpy(params.near_far_, &near_far[0], 2 * sizeof(float));
+        memcpy(params.screen_dims_, &screen_dims[0], 4 * sizeof(float));
+        memcpy(params.view_proj_inv_, &view_proj_inv[0][0], 16 * sizeof(float));
 
-        return VkResult();
+        path_tracer_->UpdateView(params);
+
+        return VK_SUCCESS;
+    }
+
+    // Renders the ambient occlusion example
+    VkResult Application::Render()
+    {
+        // Submit the command buffers
+        path_tracer_->Submit();
+        SubmitBlitCommandBuffer(blit_cmd_buffers_, vulkan_manager_->queue_);
+
+        return VK_SUCCESS;
+    }
+
+    // Submits the blit command buffer
+    VkResult Application::SubmitBlitCommandBuffer(std::vector<CommandBuffer> const& blit_command_buffers, VkQueue queue, VkFence fence)
+    {
+        VkPipelineStageFlags stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        VkCommandBuffer cmd_buffer = blit_command_buffers[vulkan_manager_->swap_chain_image_index_].Get();
+
+        VkSubmitInfo submit_info = {};
+        submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit_info.waitSemaphoreCount = 1;
+        submit_info.pWaitSemaphores = &WaitSemaphore();
+        submit_info.pWaitDstStageMask = &stage_flags;
+        submit_info.commandBufferCount = 1;
+        submit_info.pCommandBuffers = &cmd_buffer;
+        submit_info.signalSemaphoreCount = 1;
+        submit_info.pSignalSemaphores = &SignalSemaphore();
+
+        return vkQueueSubmit(queue, 1, &submit_info, fence);
     }
 
     // A helper for keeping track of the mouse state

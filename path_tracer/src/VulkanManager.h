@@ -1,5 +1,9 @@
 #pragma once
-#include "Application.h"
+#include <vulkan/vulkan.h>
+#include <memory>
+#include <vector>
+
+#include "Window.h"
 
 namespace PathTracer
 {
@@ -32,7 +36,7 @@ namespace PathTracer
         VkResult SubmitWait(VkQueue queue, VkSemaphore* wait = nullptr, uint32_t wait_count = 0u,
                             VkSemaphore* signal = nullptr, uint32_t signal_count = 0u,
                             VkFence fence = VK_NULL_HANDLE);
-        inline VkCommandBuffer Get()
+        inline VkCommandBuffer Get() const
         {
             return command_buffer_.get();
         }
@@ -56,9 +60,9 @@ namespace PathTracer
         VkSemaphore& SignalSemaphore();
         VkSemaphore& WaitSemaphore();
         std::uint32_t FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const;
-        VkDeviceMemory AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const;
+        VkScopedObject<VkDeviceMemory> AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const;
         VkScopedObject<VkBuffer> CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage) const;
-        std::vector<CommandBuffer> CreateBlitCommandBuffers(VkBuffer buffer, Window& window);
+        std::vector<CommandBuffer> CreateBlitCommandBuffers(VkBuffer buffer, Window const& window) const;
         VkMemoryRequirements GetBufferMemoryRequirements(VkBuffer buffer) const;
         void BindBufferMemory(VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset) const;
         void* MapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const;

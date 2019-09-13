@@ -1,10 +1,11 @@
 #include "AccelerationStructureController.h"
 #include "VulkanManager.h"
 #include <algorithm>
+#include <iostream>
 
 namespace PathTracer
 {
-    Application::AccelerationStructureController::AccelerationStructureController(std::shared_ptr<VulkanManager> vk_manager)
+    AccelerationStructureController::AccelerationStructureController(std::shared_ptr<VulkanManager> vk_manager)
         : vulkan_manager_(vk_manager)
         , top_level_accel_(VK_NULL_HANDLE)
         , accel_buffer_(VK_NULL_HANDLE)
@@ -25,7 +26,7 @@ namespace PathTracer
             throw std::runtime_error("Cannot create context");
         }
     }
-    Application::AccelerationStructureController::~AccelerationStructureController()
+    AccelerationStructureController::~AccelerationStructureController()
     {
         // Terminate RadeonRays
         for (auto bottom_acc : bottom_level_accel_)
@@ -40,16 +41,11 @@ namespace PathTracer
             rrDestroyAccelerationStructure(context_, top_level_accel_);
         }
         rrDestroyContext(context_);
-        // Free memory
-        if (accel_buffer_ != VK_NULL_HANDLE)
-        {
-            vkFreeMemory(vulkan_manager_->device_, accel_buffer_, nullptr);
-        }
     }
 
-    bool Application::AccelerationStructureController::BuildAccelerationStructure(Scene const& scene)
+    bool AccelerationStructureController::BuildAccelerationStructure(Scene const& scene)
     {
-        VkDeviceMemory accel_build_buffer;
+        VkScopedObject<VkDeviceMemory> accel_build_buffer;
 
         // Create our acceleration structure
         RrAccelerationStructureCreateInfo create_info = {};
@@ -126,7 +122,7 @@ namespace PathTracer
 
         VkDeviceSize required_mem_size = 0;
         VkDeviceSize required_scratch_mem_size = 0;
-        for (auto i = 0u; i <= scene.GetMeshCount(); ++i)
+        for (auto i = 0u; i < scene.GetMeshCount(); ++i)
         {
             required_mem_size += meshes_mem_reqs[i].size;
 
@@ -139,10 +135,10 @@ namespace PathTracer
         std::cout << "Top-level acceleration structure build part size: " << required_scratch_mem_size * 1e-9 << " Gb" << std::endl;
         std::cout << "Top-level acceleration structure part size: " << required_mem_size * 1e-9 << " Gb" << std::endl;
 
-        auto scratch_memory_index = vulkan_manager_->FindDeviceMemoryIndex(scene_scratch_mem_reqs.memoryTypeBits);
+        auto scratch_memory_index = vulkan_manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         accel_build_buffer = vulkan_manager_->AllocateDeviceMemory(scratch_memory_index, required_scratch_mem_size);
 
-        auto local_memory_index = vulkan_manager_->FindDeviceMemoryIndex(scene_mem_reqs.memoryTypeBits);
+        auto local_memory_index = vulkan_manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         accel_buffer_ = vulkan_manager_->AllocateDeviceMemory(local_memory_index, required_mem_size);
 
 
@@ -156,12 +152,12 @@ namespace PathTracer
             std::uint32_t current_instance = 0;
             for (auto i = 0u; i < scene.GetMeshCount(); ++i)
             {
-                res = rrBindAccelerationStructureMemory(context_, bottom_level_accel_[i], accel_buffer_, offset);
+                res = rrBindAccelerationStructureMemory(context_, bottom_level_accel_[i], accel_buffer_.get(), offset);
                 if (res != RR_STATUS_SUCCESS)
                 {
                     throw std::runtime_error("Cannot bind acceleration structure memory");
                 }
-                res = rrBindAccelerationStructureBuildScratchMemory(context_, bottom_level_accel_[i], accel_build_buffer, 0u);
+                res = rrBindAccelerationStructureBuildScratchMemory(context_, bottom_level_accel_[i], accel_build_buffer.get(), 0u);
                 if (res != RR_STATUS_SUCCESS)
                 {
                     throw std::runtime_error("Cannot bind acceleration structure build scratch memory");
@@ -181,18 +177,16 @@ namespace PathTracer
 
                 offset += meshes_mem_reqs[i].size;
             }
-
-            std::cout << "Transforms " << current_instance << std::endl;
         }
 
         // Bind memory for the scene.
-        res = rrBindAccelerationStructureMemory(context_, top_level_accel_, accel_buffer_, offset);
+        res = rrBindAccelerationStructureMemory(context_, top_level_accel_, accel_buffer_.get(), offset);
         if (res != RR_STATUS_SUCCESS)
         {
             throw std::runtime_error("Cannot bind acceleration structure memory");
         }
 
-        res = rrBindAccelerationStructureBuildScratchMemory(context_, top_level_accel_, accel_build_buffer, 0);
+        res = rrBindAccelerationStructureBuildScratchMemory(context_, top_level_accel_, accel_build_buffer.get(), 0);
         if (res != RR_STATUS_SUCCESS)
         {
             throw std::runtime_error("Cannot bind acceleration structure build scratch memory");
@@ -248,8 +242,6 @@ namespace PathTracer
             throw std::runtime_error("Cannot execute creating top-level acceleration structure");
         }
 
-        // Release our temporary resources
-        vkFreeMemory(vulkan_manager_->device_, accel_build_buffer, nullptr);
         std::cout << "CPUGPU acceleration structure has been built" << std::endl;
 
         return true;

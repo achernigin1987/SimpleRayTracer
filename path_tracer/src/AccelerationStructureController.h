@@ -3,11 +3,11 @@
 #include <radeonrays.h>
 #include <vector>
 #include "SceneController.h"
-#include "Application.h"
+#include "VulkanManager.h"
 
 namespace PathTracer
 {
-    class Application::AccelerationStructureController
+    class AccelerationStructureController
     {
     public:
         AccelerationStructureController(std::shared_ptr<VulkanManager> vk_manager);
@@ -25,6 +25,10 @@ namespace PathTracer
         {
             return top_level_accel_;
         }
+        inline RrContext GetContext() const
+        {
+            return context_;
+        }
     private:
         // vulkan manager for context, memory management and scheduling build
         std::shared_ptr<VulkanManager> vulkan_manager_;
@@ -35,6 +39,6 @@ namespace PathTracer
         RrAccelerationStructure top_level_accel_;
         // The buffer for storing the acceleration structure
         // only one since we have single memory "ptr" covering all acceleration structures
-        VkDeviceMemory accel_buffer_;
+        VkScopedObject<VkDeviceMemory> accel_buffer_;
     };
 }

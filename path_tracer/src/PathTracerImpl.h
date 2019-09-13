@@ -11,6 +11,7 @@
 #include "SceneController.h"
 #include "AccelerationStructureController.h"
 #include "VulkanManager.h"
+#include "Pipeline.h"
 
 namespace PathTracer
 {
@@ -36,26 +37,45 @@ namespace PathTracer
     class PathTracerImpl
     {
     public:
-        PathTracerImpl() = default;
-        void Init(Scene const& scene, RrAccelerationStructure top_level_structure, uint32_t num_rays, std::shared_ptr<VulkanManager> manager);
-        CommandBuffer PreparePathTraceCommands();
+        PathTracerImpl(std::shared_ptr<VulkanManager> manager);
+        void Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays);
+        VkResult Submit();
+        void UpdateView(Params const& params);
+        VkBuffer GetColor() const
+        {
+            return color_.get();
+        }
 
     private:
+        VkScopedObject<VkFence> CreateFence() const;
+        void PrepareCommandBuffer(uint32_t num_rays);
+
         std::shared_ptr<VulkanManager> manager_ = nullptr;
         RrAccelerationStructure top_level_structure_ = VK_NULL_HANDLE;
-        VkDeviceMemory memory_ = VK_NULL_HANDLE;
-        VkBuffer indices_ = VK_NULL_HANDLE;
-        VkBuffer vertices_ = VK_NULL_HANDLE;
-        VkBuffer shapes_ = VK_NULL_HANDLE;
-        VkBuffer color_ = VK_NULL_HANDLE;
-        VkBuffer params_ = VK_NULL_HANDLE;
-        VkBuffer scratch_trace_ = VK_NULL_HANDLE;
-        VkBuffer camera_rays_ = VK_NULL_HANDLE;
-        VkBuffer ao_rays_ = VK_NULL_HANDLE;
-        VkBuffer ao_count_ = VK_NULL_HANDLE;
-        VkBuffer hits_ = VK_NULL_HANDLE;
-        VkBuffer random_ = VK_NULL_HANDLE;
-        VkBuffer ao_ = VK_NULL_HANDLE;
-        VkBuffer ao_id_ = VK_NULL_HANDLE;
+        RrContext context_ = VK_NULL_HANDLE;
+        VkScopedObject<VkDeviceMemory> memory_;;
+        VkScopedObject<VkBuffer> indices_;
+        VkScopedObject<VkBuffer> vertices_;
+        VkScopedObject<VkBuffer> shapes_;
+        VkScopedObject<VkBuffer> color_;
+        VkScopedObject<VkBuffer> params_;
+        VkScopedObject<VkBuffer> scratch_trace_;
+        VkScopedObject<VkBuffer> camera_rays_;
+        VkScopedObject<VkBuffer> ao_rays_;
+        VkScopedObject<VkBuffer> ao_count_;
+        VkScopedObject<VkBuffer> hits_;
+        VkScopedObject<VkBuffer> random_;
+        VkScopedObject<VkBuffer> ao_;
+        VkScopedObject<VkBuffer> ao_id_;
+        // The fence to be signalled
+        VkScopedObject<VkFence> fence_;
+        CommandBuffer ao_command_buffer_;
+        // Pipelines
+        // The pipeline object for generating the camera rays
+        Pipeline camera_rays_pipeline_;
+        // The pipeline object for generating the ambient occlusion rays
+        Pipeline ao_rays_pipeline_;
+        // The pipeline object for resolving the ambient occlusion rays
+        Pipeline ao_rays_resolve_pipeline_;
     };
 }

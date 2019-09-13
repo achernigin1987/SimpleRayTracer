@@ -288,7 +288,7 @@ namespace PathTracer
         if (!window) return false;
 
         bool has_validation_layer = false;
-        if (CreateInstance(window, instance_, has_validation_layer)) return false;
+        if (!CreateInstance(window, instance_, has_validation_layer)) return false;
 
         // Create the error reporting callback
         if (has_validation_layer)
@@ -318,7 +318,7 @@ namespace PathTracer
         std::vector<VkPresentModeKHR> present_modes;
         uint32_t queue_family_index = 0xFFFFFFFF;
 
-        if (InitDevice(device_, queue_,
+        if (!InitDevice(device_, queue_,
                        capabilities,
                        formats,
                        present_modes,
@@ -543,6 +543,7 @@ namespace PathTracer
     {
         return semaphores_[semaphore_index_];
     }
+
     VkSemaphore& VulkanManager::WaitSemaphore()
     {
         VkSemaphore& semaphore = semaphores_[semaphore_index_];
@@ -550,7 +551,7 @@ namespace PathTracer
         return semaphore;
     }
 
-    std::uint32_t  VulkanManager::FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const
+    std::uint32_t VulkanManager::FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const
     {
         VkPhysicalDeviceMemoryProperties mem_props;
         vkGetPhysicalDeviceMemoryProperties(device_.physical_device_, &mem_props);
@@ -567,7 +568,7 @@ namespace PathTracer
         throw std::runtime_error("Cannot find specified memory type");
     }
 
-    VkDeviceMemory VulkanManager::AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const
+    VkScopedObject<VkDeviceMemory> VulkanManager::AllocateDeviceMemory(std::uint32_t memory_type_index, std::size_t size) const
     {
         VkMemoryAllocateInfo info;
         info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -583,7 +584,11 @@ namespace PathTracer
             throw std::runtime_error("Cannot allocate device memory");
         }
 
-        return memory;
+        return VkScopedObject<VkDeviceMemory>(memory,
+                                              [device = device_](VkDeviceMemory memory)
+        {
+            vkFreeMemory(device, memory, nullptr);
+        });
     }
 
     VkScopedObject<VkBuffer> VulkanManager::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage) const
@@ -620,8 +625,8 @@ namespace PathTracer
     }
 
     void VulkanManager::BindBufferMemory(VkBuffer buffer,
-                                       VkDeviceMemory memory,
-                                       VkDeviceSize offset) const
+                                         VkDeviceMemory memory,
+                                         VkDeviceSize offset) const
     {
         auto res = vkBindBufferMemory(device_,
                                       buffer,
@@ -655,11 +660,11 @@ namespace PathTracer
     }
 
     void VulkanManager::EncodeCopyBuffer(VkBuffer src_buffer,
-                                       VkBuffer dst_buffer,
-                                       VkDeviceSize src_offset,
-                                       VkDeviceSize dst_offset,
-                                       VkDeviceSize size,
-                                       VkCommandBuffer& command_buffer) const
+                                         VkBuffer dst_buffer,
+                                         VkDeviceSize src_offset,
+                                         VkDeviceSize dst_offset,
+                                         VkDeviceSize size,
+                                         VkCommandBuffer& command_buffer) const
     {
         VkBufferCopy copy_region;
         copy_region.srcOffset = src_offset;
@@ -669,11 +674,11 @@ namespace PathTracer
     }
 
     void VulkanManager::EncodeBufferBarrier(VkBuffer buffer,
-                                          VkAccessFlags src_access,
-                                          VkAccessFlags dst_access,
-                                          VkPipelineStageFlags src_stage,
-                                          VkPipelineStageFlags dst_stage,
-                                          VkCommandBuffer& command_buffer) const
+                                            VkAccessFlags src_access,
+                                            VkAccessFlags dst_access,
+                                            VkPipelineStageFlags src_stage,
+                                            VkPipelineStageFlags dst_stage,
+                                            VkCommandBuffer& command_buffer) const
     {
         VkBufferMemoryBarrier barrier;
         barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -699,12 +704,12 @@ namespace PathTracer
     }
 
     void VulkanManager::EncodeBufferBarriers(VkBuffer const* buffers,
-                                           std::uint32_t buffer_count,
-                                           VkAccessFlags src_access,
-                                           VkAccessFlags dst_access,
-                                           VkPipelineStageFlags src_stage,
-                                           VkPipelineStageFlags dst_stage,
-                                           VkCommandBuffer& command_buffer) const
+                                             std::uint32_t buffer_count,
+                                             VkAccessFlags src_access,
+                                             VkAccessFlags dst_access,
+                                             VkPipelineStageFlags src_stage,
+                                             VkPipelineStageFlags dst_stage,
+                                             VkCommandBuffer& command_buffer) const
     {
         VkBufferMemoryBarrier* barriers = static_cast<VkBufferMemoryBarrier*>(
             alloca(buffer_count * sizeof(VkBufferMemoryBarrier)));
@@ -736,7 +741,7 @@ namespace PathTracer
     }
 
     // Encodes the commands for blitting to the swap chain images
-    std::vector<CommandBuffer> VulkanManager::CreateBlitCommandBuffers(VkBuffer buffer, Window& window)
+    std::vector<CommandBuffer> VulkanManager::CreateBlitCommandBuffers(VkBuffer buffer, Window const& window) const
     {
         std::vector<CommandBuffer> blit_command_buffers;
         uint32_t swap_chain_image_index = 0;
@@ -809,9 +814,9 @@ namespace PathTracer
             blit_command_buffers.back().End();
         }
 
-
         return blit_command_buffers;
     }
+
     CommandBuffer::CommandBuffer(VkCommandPool command_pool, VkDevice device)
     {
         VkCommandBuffer raw_command_buffer = nullptr;
@@ -833,9 +838,13 @@ namespace PathTracer
         command_buffer_ = VkScopedObject<VkCommandBuffer>(raw_command_buffer,
                                                           [&](VkCommandBuffer command_buffer)
         {
-            vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+            if (command_buffer)
+            {
+                //vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+            }
         });
     }
+
     void CommandBuffer::Begin() const
     {
         VkCommandBufferBeginInfo begin_info;
@@ -846,10 +855,12 @@ namespace PathTracer
 
         vkBeginCommandBuffer(command_buffer_.get(), &begin_info);
     }
+
     void CommandBuffer::End() const
     {
         vkEndCommandBuffer(command_buffer_.get());
     }
+
     VkResult CommandBuffer::Submit(VkQueue queue, VkSemaphore * wait, uint32_t wait_count, VkSemaphore * signal, uint32_t signal_count, VkFence fence)
     {
         VkCommandBuffer cmd_buf = command_buffer_.get();
@@ -866,6 +877,7 @@ namespace PathTracer
 
         return vkQueueSubmit(queue, 1, &submit_info, fence);
     }
+
     VkResult CommandBuffer::SubmitWait(VkQueue queue, VkSemaphore * wait, uint32_t wait_count, VkSemaphore * signal, uint32_t signal_count, VkFence fence)
     {
         auto res = Submit(queue, wait, wait_count, signal, signal_count, fence);
