@@ -66,7 +66,17 @@ namespace PathTracer
         // Gets the number of vertices in the mesh
         inline uint32_t GetVertexCount() const
         {
-            return static_cast<uint32_t>(vertices_.size()) / (vertex_stride_ / sizeof(uint32_t));
+            return static_cast<uint32_t>(vertices_.size()) / (vertex_stride_ / sizeof(float));
+        }
+
+        inline uint32_t GetVertexSize() const
+        {
+            return static_cast<uint32_t>(vertices_.size());
+        }
+
+        inline uint32_t GetIndexSize() const
+        {
+            return static_cast<uint32_t>(indices_.size());
         }
 
         float const* Vertices() const

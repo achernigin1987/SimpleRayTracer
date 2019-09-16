@@ -5,14 +5,11 @@
 namespace
 {
     // Vulkan setup
-#ifndef _DEBUG
-    std::vector<const char *> validation_layers;
-#else // _DEBUG
     std::vector<const char *> validation_layers =
     {
         "VK_LAYER_LUNARG_standard_validation"
     };
-#endif // _DEBUG
+
     std::vector<const char *> required_extensions =
     {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,

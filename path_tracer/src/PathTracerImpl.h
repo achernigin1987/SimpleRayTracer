@@ -38,13 +38,11 @@ namespace PathTracer
     {
     public:
         PathTracerImpl(std::shared_ptr<VulkanManager> manager);
+        ~PathTracerImpl();
         void Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays);
         VkResult Submit();
         void UpdateView(Params const& params);
-        VkBuffer GetColor() const
-        {
-            return color_.get();
-        }
+        VkBuffer GetColor() const;
 
     private:
         VkScopedObject<VkFence> CreateFence() const;
@@ -53,22 +51,9 @@ namespace PathTracer
         std::shared_ptr<VulkanManager> manager_ = nullptr;
         RrAccelerationStructure top_level_structure_ = VK_NULL_HANDLE;
         RrContext context_ = VK_NULL_HANDLE;
-        VkScopedObject<VkDeviceMemory> memory_;;
-        VkScopedObject<VkBuffer> indices_;
-        VkScopedObject<VkBuffer> vertices_;
-        VkScopedObject<VkBuffer> shapes_;
-        VkScopedObject<VkBuffer> color_;
-        VkScopedObject<VkBuffer> params_;
-        VkScopedObject<VkBuffer> scratch_trace_;
-        VkScopedObject<VkBuffer> camera_rays_;
-        VkScopedObject<VkBuffer> ao_rays_;
-        VkScopedObject<VkBuffer> ao_count_;
-        VkScopedObject<VkBuffer> hits_;
-        VkScopedObject<VkBuffer> random_;
-        VkScopedObject<VkBuffer> ao_;
-        VkScopedObject<VkBuffer> ao_id_;
-        // The fence to be signalled
-        VkScopedObject<VkFence> fence_;
+        struct PathTraceImplH;
+        std::unique_ptr<PathTraceImplH> holder_;
+
         CommandBuffer ao_command_buffer_;
         // Pipelines
         // The pipeline object for generating the camera rays

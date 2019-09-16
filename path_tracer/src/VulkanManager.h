@@ -86,6 +86,11 @@ namespace PathTracer
                                   VkPipelineStageFlags src_stage,
                                   VkPipelineStageFlags dst_stage,
                                   VkCommandBuffer& command_buffer) const;
+        template<typename T>
+        static T align(T value, T alignment)
+        {
+            return (value + (alignment - 1)) / alignment * alignment;
+        }
 
         VulkanDevice                device_;
         VkInstance                  instance_ = VK_NULL_HANDLE;

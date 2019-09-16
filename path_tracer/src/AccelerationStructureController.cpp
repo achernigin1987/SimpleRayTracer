@@ -124,12 +124,14 @@ namespace PathTracer
         VkDeviceSize required_scratch_mem_size = 0;
         for (auto i = 0u; i < scene.GetMeshCount(); ++i)
         {
-            required_mem_size += meshes_mem_reqs[i].size;
-
+            required_mem_size += i < (scene.GetMeshCount() - 1) ? VulkanManager::align(meshes_mem_reqs[i].size,
+                                                                                       meshes_mem_reqs[i + 1].alignment)
+                : VulkanManager::align(meshes_mem_reqs[i].size,
+                                       scene_mem_reqs.alignment);
             required_scratch_mem_size = std::max(meshes_scratch_mem_reqs[i].size, required_scratch_mem_size);
         }
 
-        required_mem_size += scene_mem_reqs.size;
+        required_mem_size += VulkanManager::align(scene_mem_reqs.size, scene_mem_reqs.alignment);
         required_scratch_mem_size = std::max(required_scratch_mem_size, scene_scratch_mem_reqs.size);
 
         std::cout << "Top-level acceleration structure build part size: " << required_scratch_mem_size * 1e-9 << " Gb" << std::endl;
@@ -149,7 +151,6 @@ namespace PathTracer
         // Now bind memory for all meshes.
         auto offset = 0u;
         {
-            std::uint32_t current_instance = 0;
             for (auto i = 0u; i < scene.GetMeshCount(); ++i)
             {
                 res = rrBindAccelerationStructureMemory(context_, bottom_level_accel_[i], accel_buffer_.get(), offset);
@@ -162,7 +163,7 @@ namespace PathTracer
                 {
                     throw std::runtime_error("Cannot bind acceleration structure build scratch memory");
                 }
-                RrInstanceBuildInfo& instance_info = build_infos[current_instance];
+                RrInstanceBuildInfo& instance_info = build_infos[i];
                 instance_info.accelerationStructure = bottom_level_accel_[i];
                 instance_info.instanceID = i;
                 instance_info.instanceTransform = &instance_transforms[i * 12];
@@ -175,7 +176,8 @@ namespace PathTracer
                 instance_transforms[i * 12 + 5] = 1;
                 instance_transforms[i * 12 + 10] = 1;
 
-                offset += meshes_mem_reqs[i].size;
+                offset += (i < scene.GetMeshCount() - 1) ? (std::uint32_t)VulkanManager::align(meshes_mem_reqs[i].size, meshes_mem_reqs[i + 1].alignment)
+                    : (std::uint32_t)VulkanManager::align(meshes_mem_reqs[i].size, scene_mem_reqs.alignment);
             }
         }
 
@@ -225,11 +227,10 @@ namespace PathTracer
         build_info.inputMemoryType = RR_ACCELERATION_STRUCTURE_INPUT_MEMORY_TYPE_CPU;
         build_info.firstUpdateIndex = 0u;
         build_info.numPrims = scene.GetMeshCount();
+        build_info.cpuSceneInfo.pInstanceBuildInfo = build_infos.data();
 
         // Build the acceleration structure
         CommandBuffer build_accel_commands(vulkan_manager_->command_pool_, vulkan_manager_->device_);
-        build_info.cpuSceneInfo.pInstanceBuildInfo = build_infos.data();
-
         build_accel_commands.Begin();
         status = rrCmdBuildAccelerationStructure(context_, top_level_accel_, &build_info, build_accel_commands);
         build_accel_commands.End();
