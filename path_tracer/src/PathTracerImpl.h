@@ -45,7 +45,6 @@ namespace PathTracer
         VkBuffer GetColor() const;
 
     private:
-        VkScopedObject<VkFence> CreateFence() const;
         void PrepareCommandBuffer(uint32_t num_rays);
 
         std::shared_ptr<VulkanManager> manager_ = nullptr;

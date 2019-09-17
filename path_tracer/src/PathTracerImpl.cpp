@@ -12,6 +12,8 @@ namespace PathTracer
         {}
         void Init(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes, VkDeviceSize scratch_trace_size)
         {
+            fence_ = manager_->CreateFence();
+
             VkDeviceSize params_size = VkDeviceSize(sizeof(Params));
             VkDeviceSize indices_size = VkDeviceSize(indices.size() * sizeof(uint32_t));
             VkDeviceSize vertices_size = VkDeviceSize(vertices.size() * sizeof(float));
@@ -101,12 +103,12 @@ namespace PathTracer
             void* random_ptr = manager_->MapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
             std::random_device dev;
             std::mt19937 rng(dev());
-            std::uniform_int_distribution<std::mt19937::result_type> dist6(1, num_rays); // distribution in range [1, 6]
+            std::uniform_int_distribution<std::mt19937::result_type> dist6(1, num_rays);
 
             uint32_t* random_data = (uint32_t*)random_ptr;
             for (uint32_t i = 0; i < num_rays; ++i)
             {
-                random_data[i] = std::rand() + 3;//dist6(rng);
+                random_data[i] = dist6(rng);
             }
             manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
         }
@@ -147,8 +149,6 @@ namespace PathTracer
         top_level_structure_ = top_level_structure;
         context_ = context;
 
-        holder_->fence_ = CreateFence();
-
         std::vector<float> vertices;
         std::vector<uint32_t> indices;
         std::vector<Shape> shapes(scene.GetMeshCount());
@@ -176,25 +176,6 @@ namespace PathTracer
         holder_->Init(num_rays, vertices, indices, shapes, scratch_trace_size);
 
         PrepareCommandBuffer(num_rays);
-    }
-
-    VkScopedObject<VkFence> PathTracerImpl::CreateFence() const
-    {
-        VkFence fence;
-        // Create the fence
-        VkFenceCreateInfo fence_create_info = {};
-        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        VkResult result = vkCreateFence(manager_->device_, &fence_create_info, nullptr, &fence);
-        if (result != VK_SUCCESS)
-        {
-            throw std::runtime_error("Cannot create fence");
-        }
-
-        return VkScopedObject<VkFence>(fence, [this](VkFence fence)
-        {
-            vkDestroyFence(manager_->device_, fence, nullptr);
-        });
     }
 
     void PathTracerImpl::PrepareCommandBuffer(uint32_t num_rays)

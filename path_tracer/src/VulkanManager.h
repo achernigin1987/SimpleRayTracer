@@ -48,7 +48,7 @@ namespace PathTracer
     struct VulkanManager
     {
         VulkanManager() = default;
-        ~VulkanManager() = default;
+        ~VulkanManager();
         // Non-copyable
         VulkanManager(VulkanManager const&) = delete;
         VulkanManager& operator =(VulkanManager const&) = delete;
@@ -56,7 +56,6 @@ namespace PathTracer
         VulkanManager& operator=(VulkanManager&&) = delete;
 
         bool Init(Window& window);
-        void Terminate();
         VkSemaphore& SignalSemaphore();
         VkSemaphore& WaitSemaphore();
         std::uint32_t FindDeviceMemoryIndex(VkMemoryPropertyFlags flags) const;
@@ -86,6 +85,8 @@ namespace PathTracer
                                   VkPipelineStageFlags src_stage,
                                   VkPipelineStageFlags dst_stage,
                                   VkCommandBuffer& command_buffer) const;
+        VkScopedObject<VkFence> CreateFence() const;
+
         template<typename T>
         static T align(T value, T alignment)
         {
@@ -108,6 +109,8 @@ namespace PathTracer
         VkSurfaceKHR                surface_ = VK_NULL_HANDLE;
         VkSwapchainKHR              swap_chain_ = VK_NULL_HANDLE;
         VkSurfaceFormatKHR          surface_format_ = {};
+    private:
+        void Terminate();
     };
 
 }

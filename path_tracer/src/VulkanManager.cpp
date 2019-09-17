@@ -1,4 +1,4 @@
-#include "VulkanManager.h"
+﻿#include "VulkanManager.h"
 #include <iostream>
 #include <algorithm>
 
@@ -280,6 +280,10 @@ namespace
 
 namespace PathTracer
 {
+    VulkanManager::~VulkanManager()
+    {
+        Terminate();
+    }
     bool VulkanManager::Init(Window& window)
     {
         if (!window) return false;
@@ -514,6 +518,25 @@ namespace PathTracer
         }
 
         return true;
+    }
+
+    VkScopedObject<VkFence> VulkanManager::CreateFence() const
+    {
+        VkFence fence;
+        // Create the fence
+        VkFenceCreateInfo fence_create_info = {};
+        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        VkResult result = vkCreateFence(device_, &fence_create_info, nullptr, &fence);
+        if (result != VK_SUCCESS)
+        {
+            throw std::runtime_error("Cannot create fence");
+        }
+
+        return VkScopedObject<VkFence>(fence, [this](VkFence fence)
+        {
+            vkDestroyFence(device_, fence, nullptr);
+        });
     }
 
     void VulkanManager::Terminate()

@@ -76,10 +76,6 @@ namespace PathTracer
         // Wait until the device has completed all the work
         vkQueueWaitIdle(vulkan_manager_->queue_);
 
-        // Terminate the application
-        vulkan_manager_->Terminate();
-        as_controller_ = nullptr;
-
         // Tear down the window
         window_ = nullptr;
 
