@@ -1,15 +1,20 @@
-#include "PathTracerImpl.h"
+#include "AoSample.h"
 #include <iterator>
 #include <random>
 #include <glm/glm.hpp>
 
 namespace PathTracer
 {
-    struct PathTracerImpl::PathTraceImplH
+    struct Ao::AoImpl
     {
-        PathTraceImplH(std::shared_ptr<VulkanManager> manager)
+        AoImpl(std::shared_ptr<VulkanManager> manager)
             : manager_(manager)
-        {}
+            , ao_command_buffer_(manager_->command_pool_, manager_->device_)
+            , camera_rays_pipeline_(manager_)
+            , ao_rays_pipeline_(manager_)
+            , ao_rays_resolve_pipeline_(manager_)
+        {
+        }
         void Init(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes, VkDeviceSize scratch_trace_size)
         {
             fence_ = manager_->CreateFence();
@@ -113,6 +118,9 @@ namespace PathTracer
             manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
         }
 
+        // vulkan manager
+        std::shared_ptr<VulkanManager> manager_;
+        // ao buffers
         VkScopedObject<VkDeviceMemory> memory_;
         VkScopedObject<VkBuffer> indices_;
         VkScopedObject<VkBuffer> vertices_;
@@ -129,22 +137,26 @@ namespace PathTracer
         VkScopedObject<VkBuffer> ao_id_;
         // The fence to be signalled
         VkScopedObject<VkFence> fence_;
-        std::shared_ptr<VulkanManager> manager_;
+        // pipelines
+        CommandBuffer ao_command_buffer_;
+        // Pipelines
+        // The pipeline object for generating the camera rays
+        Pipeline camera_rays_pipeline_;
+        // The pipeline object for generating the ambient occlusion rays
+        Pipeline ao_rays_pipeline_;
+        // The pipeline object for resolving the ambient occlusion rays
+        Pipeline ao_rays_resolve_pipeline_;
     };
 
-    PathTracerImpl::PathTracerImpl(std::shared_ptr<VulkanManager> manager)
+    Ao::Ao(std::shared_ptr<VulkanManager> manager)
         : manager_ (manager)
-        , holder_(std::make_unique<PathTraceImplH>(manager))
-        , ao_command_buffer_(manager_->command_pool_, manager_->device_)
-        , camera_rays_pipeline_(manager_)
-        , ao_rays_pipeline_(manager_)
-        , ao_rays_resolve_pipeline_(manager_)
+        , impl_(std::make_unique<AoImpl>(manager))
     {}
 
-    PathTracerImpl::~PathTracerImpl()
+    Ao::~Ao()
     {}
 
-    void PathTracerImpl::Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays)
+    void Ao::Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays)
     {
         top_level_structure_ = top_level_structure;
         context_ = context;
@@ -173,16 +185,16 @@ namespace PathTracer
         VkMemoryRequirements accel_trace_mem_reqs;
         rrGetAccelerationStructureTraceScratchMemoryRequirements(context_, top_level_structure, num_rays, &accel_trace_mem_reqs);
         VkDeviceSize scratch_trace_size = accel_trace_mem_reqs.size;
-        holder_->Init(num_rays, vertices, indices, shapes, scratch_trace_size);
+        impl_->Init(num_rays, vertices, indices, shapes, scratch_trace_size);
 
         PrepareCommandBuffer(num_rays);
     }
 
-    void PathTracerImpl::PrepareCommandBuffer(uint32_t num_rays)
+    void Ao::PrepareCommandBuffer(uint32_t num_rays)
     {
-        VkCommandBuffer cmd_buf = ao_command_buffer_.Get();
+        VkCommandBuffer cmd_buf = impl_->ao_command_buffer_.Get();
         // Create the compute pipelines
-        camera_rays_pipeline_.Create("camera_rays.comp.spv", {
+        impl_->camera_rays_pipeline_.Create("shaders/camera_rays.comp.spv", {
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Rays
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
@@ -190,7 +202,7 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Random
                                      });
-        ao_rays_pipeline_.Create("ao_rays.comp.spv", {
+        impl_->ao_rays_pipeline_.Create("shaders/ao_rays.comp.spv", {
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Rays
@@ -202,7 +214,7 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Indices
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Vertices
                                  });
-        ao_rays_resolve_pipeline_.Create("ao_rays_resolve.comp.spv", {
+        impl_->ao_rays_resolve_pipeline_.Create("shaders/ao_rays_resolve.comp.spv", {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // AoBuffer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
@@ -210,23 +222,23 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Hits
                                          });
 
-        ao_command_buffer_.Begin();
-        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipeline());
+        impl_->ao_command_buffer_.Begin();
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->camera_rays_pipeline_.GetPipeline());
         // Generate the camera rays
         Binding cam_rays_bindings[] =
         {
-            holder_->params_.get(),
-            holder_->camera_rays_.get(),
-            holder_->ao_count_.get(),
-            holder_->ao_.get(),
-            holder_->color_.get(),
-            holder_->random_.get(),
+            impl_->params_.get(),
+            impl_->camera_rays_.get(),
+            impl_->ao_count_.get(),
+            impl_->ao_.get(),
+            impl_->color_.get(),
+            impl_->random_.get(),
         };
-        VkDescriptorSet cam_rays_desc = camera_rays_pipeline_.Bind(cam_rays_bindings);
-        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipelineLayout(), 0, 1, &cam_rays_desc, 0, nullptr);
+        VkDescriptorSet cam_rays_desc = impl_->camera_rays_pipeline_.Bind(cam_rays_bindings);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->camera_rays_pipeline_.GetPipelineLayout(), 0, 1, &cam_rays_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        manager_->EncodeBufferBarrier(holder_->camera_rays_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->camera_rays_.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_SHADER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
@@ -239,9 +251,9 @@ namespace PathTracer
             RR_OUTPUT_TYPE_FULL_HIT,
             0u,
             num_rays,
-            holder_->camera_rays_.get(),
-            holder_->hits_.get(),
-            holder_->scratch_trace_.get(),
+            impl_->camera_rays_.get(),
+            impl_->hits_.get(),
+            impl_->scratch_trace_.get(),
             cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
@@ -249,33 +261,33 @@ namespace PathTracer
             throw std::runtime_error("Trace Rays failed");
         }
 
-        VkBuffer after_camera_rays_trace[2] = { holder_->hits_.get() , holder_->ao_count_.get() };
+        VkBuffer after_camera_rays_trace[2] = { impl_->hits_.get() , impl_->ao_count_.get() };
         manager_->EncodeBufferBarriers(after_camera_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Generate the ambient occlusion rays
-        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipeline());
         Binding ao_ray_all_binding[] =
         {
-            holder_->params_.get(),
-            holder_->ao_id_.get(),
-            holder_->ao_rays_.get(),
-            holder_->ao_count_.get(),
-            holder_->hits_.get(),
-            holder_->camera_rays_.get(),
-            holder_->random_.get(),
-            holder_->shapes_.get(),
-            holder_->indices_.get(),
-            holder_->vertices_.get()
+            impl_->params_.get(),
+            impl_->ao_id_.get(),
+            impl_->ao_rays_.get(),
+            impl_->ao_count_.get(),
+            impl_->hits_.get(),
+            impl_->camera_rays_.get(),
+            impl_->random_.get(),
+            impl_->shapes_.get(),
+            impl_->indices_.get(),
+            impl_->vertices_.get()
         };
 
-        VkDescriptorSet ao_rays_desc = ao_rays_pipeline_.Bind(ao_ray_all_binding);
-        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
+        VkDescriptorSet ao_rays_desc = impl_->ao_rays_pipeline_.Bind(ao_ray_all_binding);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        VkBuffer before_ao_rays_trace[2] = { holder_->ao_rays_.get() , holder_->ao_count_.get() };
+        VkBuffer before_ao_rays_trace[2] = { impl_->ao_rays_.get() , impl_->ao_count_.get() };
         manager_->EncodeBufferBarriers(before_ao_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -288,10 +300,10 @@ namespace PathTracer
             RR_QUERY_TYPE_INTERSECT,
             RR_OUTPUT_TYPE_FULL_HIT,    // TODO: no need for full hit info here (gboisse)
             0u,
-            holder_->ao_rays_.get(),
-            holder_->hits_.get(),
-            holder_->ao_count_.get(),
-            holder_->scratch_trace_.get(),
+            impl_->ao_rays_.get(),
+            impl_->hits_.get(),
+            impl_->ao_count_.get(),
+            impl_->scratch_trace_.get(),
             cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
@@ -299,42 +311,42 @@ namespace PathTracer
             throw std::runtime_error("Trace Rays Indirect failed");
         }
 
-        manager_->EncodeBufferBarrier(holder_->hits_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->hits_.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_SHADER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Resolve the ambient occlusion rays
-        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipeline());
         Binding ao_color_ray_binding[] =
         {
-            holder_->ao_.get(),
-            holder_->color_.get(),
-            holder_->ao_id_.get(),
-            holder_->ao_count_.get(),
-            holder_->hits_.get()
+            impl_->ao_.get(),
+            impl_->color_.get(),
+            impl_->ao_id_.get(),
+            impl_->ao_count_.get(),
+            impl_->hits_.get()
         };
-        VkDescriptorSet ao_rays_resolve_desc = ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
-        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
+        VkDescriptorSet ao_rays_resolve_desc = impl_->ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        manager_->EncodeBufferBarrier(holder_->color_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->color_.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_TRANSFER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_TRANSFER_BIT, cmd_buf);
 
-        ao_command_buffer_.End();
+        impl_->ao_command_buffer_.End();
     }
 
-    VkResult PathTracerImpl::Submit()
+    VkResult Ao::Submit()
     {
-        return ao_command_buffer_.Submit(manager_->queue_, nullptr, 0u, nullptr, 0u, holder_->fence_.get());
+        return impl_->ao_command_buffer_.Submit(manager_->queue_, nullptr, 0u, nullptr, 0u, impl_->fence_.get());
     }
 
-    void PathTracerImpl::UpdateView(Params const & params)
+    void Ao::UpdateView(Params const & params)
     {
-        void* params_ptr = manager_->MapMemory(holder_->memory_.get(), 0u, sizeof(Params));
-        VkFence fence = holder_->fence_.get();
+        void* params_ptr = manager_->MapMemory(impl_->memory_.get(), 0u, sizeof(Params));
+        VkFence fence = impl_->fence_.get();
         if (vkGetFenceStatus(manager_->device_, fence) == VK_NOT_READY)
         {
             auto timeout = 1000000000ull;   // 1 sec
@@ -351,10 +363,10 @@ namespace PathTracer
 
         // Transfer the shader parameters to device memory
         memcpy(params_ptr, &params, sizeof(Params));
-        manager_->UnmapMemory(holder_->memory_.get(), 0u, sizeof(Params));
+        manager_->UnmapMemory(impl_->memory_.get(), 0u, sizeof(Params));
     }
-    VkBuffer PathTracerImpl::GetColor() const
+    VkBuffer Ao::GetColor() const
     {
-        return holder_->color_.get();
+        return impl_->color_.get();
     }
 }

@@ -17,7 +17,8 @@
 #include "Window.h"
 #include "Orbit.h"
 #include "VulkanManager.h"
-#include "PathTracerImpl.h"
+
+#include "AoSample.h"
 #include "AccelerationStructureController.h"
 
 namespace PathTracer
@@ -68,7 +69,7 @@ namespace PathTracer
         glm::mat4 view_projection_;
         // The number of samples
         uint32_t sample_count_;
-        std::unique_ptr <PathTracerImpl> path_tracer_;
+        std::unique_ptr <TraceAlgo> trace_algo_;
         std::vector<CommandBuffer> blit_cmd_buffers_;
     };
 }

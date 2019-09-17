@@ -106,9 +106,9 @@ namespace PathTracer
         Scene scene;
         scene.LoadFile(filename.c_str());
         as_controller_->BuildAccelerationStructure(scene);
-        path_tracer_ = std::make_unique<PathTracerImpl>(vulkan_manager_);
-        path_tracer_->Init(scene, as_controller_->Get(), as_controller_->GetContext(), window_->window_width_ * window_->window_height_);
-        blit_cmd_buffers_ = vulkan_manager_->CreateBlitCommandBuffers(path_tracer_->GetColor(), *window_);
+        trace_algo_ = std::make_unique<Ao>(vulkan_manager_);
+        trace_algo_->Init(scene, as_controller_->Get(), as_controller_->GetContext(), window_->window_width_ * window_->window_height_);
+        blit_cmd_buffers_ = vulkan_manager_->CreateBlitCommandBuffers(trace_algo_->GetColor(), *window_);
 
         InitCallbacks();
 
@@ -144,7 +144,7 @@ namespace PathTracer
         memcpy(params.screen_dims_, &screen_dims[0], 4 * sizeof(float));
         memcpy(params.view_proj_inv_, &view_proj_inv[0][0], 16 * sizeof(float));
 
-        path_tracer_->UpdateView(params);
+        trace_algo_->UpdateView(params);
 
         return VK_SUCCESS;
     }
@@ -153,7 +153,7 @@ namespace PathTracer
     VkResult Application::Render()
     {
         // Submit the command buffers
-        path_tracer_->Submit();
+        trace_algo_->Submit();
         SubmitBlitCommandBuffer(blit_cmd_buffers_, vulkan_manager_->queue_);
 
         return VK_SUCCESS;
