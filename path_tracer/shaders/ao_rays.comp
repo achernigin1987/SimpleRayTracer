@@ -138,7 +138,9 @@ uint GroupScanExclusiveAdd(in uint localId, in uint groupSize)
     for (uint stride = 1; stride <= (groupSize >> 1); stride <<= 1)
     {
         if (localId < groupSize / (2 * stride))
+        {
             ScanBuffer[2 * (localId + 1) * stride - 1] = ScanBuffer[2 * (localId + 1) * stride - 1] + ScanBuffer[(2 * localId + 1) * stride - 1];
+        }
         barrier();
     }
 
@@ -330,7 +332,9 @@ void main()
     barrier();  // sync threads
     uint ray_count = GroupScanExclusiveAdd(local_id, GROUP_SIZE);
     if (local_id == 0)
+    {
         RayOffset = atomicAdd(rayCount, ray_count);
+    }
     barrier();  // sync threads
     uint ray_index = RayOffset + ScanBuffer[local_id];
 

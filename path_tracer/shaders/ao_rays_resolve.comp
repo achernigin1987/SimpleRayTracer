@@ -61,7 +61,9 @@ void main()
     // Read the intersection data
     const uint tid = gl_GlobalInvocationID.x;
     if (tid >= rayCount)
+    {
         return; // out of bounds
+    }
     const Hit hit = hits[tid];
 
     // If we hit something, go black otherwise, go white

@@ -14,7 +14,7 @@ namespace PathTracer
         {
             VkDeviceSize params_size = VkDeviceSize(sizeof(Params));
             VkDeviceSize indices_size = VkDeviceSize(indices.size() * sizeof(uint32_t));
-            VkDeviceSize vertices_size = VkDeviceSize(indices.size() * sizeof(float));
+            VkDeviceSize vertices_size = VkDeviceSize(vertices.size() * sizeof(float));
             VkDeviceSize shapes_size = VkDeviceSize(shapes.size() * sizeof(Shape));
             VkDeviceSize random_size = VkDeviceSize(num_rays * sizeof(uint32_t));
 
@@ -28,8 +28,8 @@ namespace PathTracer
             VkDeviceSize ao_id_size = VkDeviceSize(num_rays * sizeof(uint32_t));
 
             params_ = manager_->CreateBuffer(params_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            indices_ = manager_->CreateBuffer(indices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            vertices_ = manager_->CreateBuffer(vertices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+            indices_ = manager_->CreateBuffer(indices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+            vertices_ = manager_->CreateBuffer(vertices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
             shapes_ = manager_->CreateBuffer(shapes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
             random_ = manager_->CreateBuffer(random_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
             color_ = manager_->CreateBuffer(color_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
@@ -59,7 +59,6 @@ namespace PathTracer
             VkDeviceSize random_offset = shapes_offset + GetBufferMemorySize(shapes_);
             VkDeviceSize color_offset = random_offset + GetBufferMemorySize(random_);
             VkDeviceSize camera_rays_offset = color_offset + GetBufferMemorySize(color_);
-
 
             VkDeviceSize ao_rays_offset = camera_rays_offset + GetBufferMemorySize(camera_rays_);
             VkDeviceSize ao_count_offset = ao_rays_offset + GetBufferMemorySize(ao_rays_);
@@ -147,7 +146,6 @@ namespace PathTracer
     {
         top_level_structure_ = top_level_structure;
         context_ = context;
-        
 
         holder_->fence_ = CreateFence();
 
@@ -270,10 +268,6 @@ namespace PathTracer
             throw std::runtime_error("Trace Rays failed");
         }
 
-        manager_->EncodeBufferBarrier(holder_->camera_rays_.get(), VK_ACCESS_SHADER_WRITE_BIT,
-                                      VK_ACCESS_SHADER_READ_BIT,
-                                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
         VkBuffer after_camera_rays_trace[2] = { holder_->hits_.get() , holder_->ao_count_.get() };
         manager_->EncodeBufferBarriers(after_camera_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT,
