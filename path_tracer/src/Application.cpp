@@ -98,11 +98,11 @@ namespace PathTracer
                     filename = argv[i + 1];
                     break;
                 }
-                else
-                {
-                    throw std::runtime_error("Path to scene not set");
-                }
             }
+        }
+        if (filename.empty())
+        {
+            throw std::runtime_error("Path to scene not set");
         }
 
         as_controller_ = std::make_unique<AccelerationStructureController>(vulkan_manager_);
