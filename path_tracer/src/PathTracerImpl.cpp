@@ -201,6 +201,7 @@ namespace PathTracer
 
     void PathTracerImpl::PrepareCommandBuffer(uint32_t num_rays)
     {
+        VkCommandBuffer cmd_buf = ao_command_buffer_.Get();
         // Create the compute pipelines
         camera_rays_pipeline_.Create("camera_rays.comp.spv", {
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
@@ -231,7 +232,7 @@ namespace PathTracer
                                          });
 
         ao_command_buffer_.Begin();
-        vkCmdBindPipeline(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipeline());
         // Generate the camera rays
         Binding cam_rays_bindings[] =
         {
@@ -243,10 +244,9 @@ namespace PathTracer
             holder_->random_.get(),
         };
         VkDescriptorSet cam_rays_desc = camera_rays_pipeline_.Bind(cam_rays_bindings);
-        vkCmdBindDescriptorSets(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipelineLayout(), 0, 1, &cam_rays_desc, 0, nullptr);
-        vkCmdDispatch(ao_command_buffer_, (num_rays + 63) / 64, 1u, 1u);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, camera_rays_pipeline_.GetPipelineLayout(), 0, 1, &cam_rays_desc, 0, nullptr);
+        vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        VkCommandBuffer cmd_buf = ao_command_buffer_.Get();
         manager_->EncodeBufferBarrier(holder_->camera_rays_.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_SHADER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -263,7 +263,7 @@ namespace PathTracer
             holder_->camera_rays_.get(),
             holder_->hits_.get(),
             holder_->scratch_trace_.get(),
-            ao_command_buffer_);
+            cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
         {
@@ -281,7 +281,7 @@ namespace PathTracer
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Generate the ambient occlusion rays
-        vkCmdBindPipeline(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipeline());
         Binding ao_ray_all_binding[] =
         {
             holder_->params_.get(),
@@ -297,8 +297,8 @@ namespace PathTracer
         };
 
         VkDescriptorSet ao_rays_desc = ao_rays_pipeline_.Bind(ao_ray_all_binding);
-        vkCmdBindDescriptorSets(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
-        vkCmdDispatch(ao_command_buffer_, (num_rays + 63) / 64, 1u, 1u);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
+        vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
         VkBuffer before_ao_rays_trace[2] = { holder_->ao_rays_.get() , holder_->ao_count_.get() };
         manager_->EncodeBufferBarriers(before_ao_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
@@ -317,7 +317,7 @@ namespace PathTracer
             holder_->hits_.get(),
             holder_->ao_count_.get(),
             holder_->scratch_trace_.get(),
-            ao_command_buffer_);
+            cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
         {
@@ -330,7 +330,7 @@ namespace PathTracer
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Resolve the ambient occlusion rays
-        vkCmdBindPipeline(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipeline());
         Binding ao_color_ray_binding[] =
         {
             holder_->ao_.get(),
@@ -340,8 +340,8 @@ namespace PathTracer
             holder_->hits_.get()
         };
         VkDescriptorSet ao_rays_resolve_desc = ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
-        vkCmdBindDescriptorSets(ao_command_buffer_, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
-        vkCmdDispatch(ao_command_buffer_, (num_rays + 63) / 64, 1u, 1u);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
+        vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
         manager_->EncodeBufferBarrier(holder_->color_.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_TRANSFER_READ_BIT,

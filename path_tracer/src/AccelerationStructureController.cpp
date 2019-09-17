@@ -134,8 +134,8 @@ namespace PathTracer
         required_mem_size += VulkanManager::align(scene_mem_reqs.size, scene_mem_reqs.alignment);
         required_scratch_mem_size = std::max(required_scratch_mem_size, scene_scratch_mem_reqs.size);
 
-        std::cout << "Top-level acceleration structure build part size: " << required_scratch_mem_size * 1e-9 << " Gb" << std::endl;
-        std::cout << "Top-level acceleration structure part size: " << required_mem_size * 1e-9 << " Gb" << std::endl;
+        std::cout << "Top-level acceleration structure build size: " << required_scratch_mem_size * 1e-9 << " Gb" << std::endl;
+        std::cout << "Top-level acceleration structure size: " << required_mem_size * 1e-9 << " Gb" << std::endl;
 
         auto scratch_memory_index = vulkan_manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         accel_build_buffer = vulkan_manager_->AllocateDeviceMemory(scratch_memory_index, required_scratch_mem_size);
@@ -172,9 +172,9 @@ namespace PathTracer
                           instance_transforms.begin() + (i + 1) * 12,
                           0.f);
 
-                instance_transforms[i * 12] = 1;
-                instance_transforms[i * 12 + 5] = 1;
-                instance_transforms[i * 12 + 10] = 1;
+                instance_transforms[i * 12] = 1.f;
+                instance_transforms[i * 12 + 5] = 1.f;
+                instance_transforms[i * 12 + 10] = 1.f;
 
                 offset += (i < scene.GetMeshCount() - 1) ? (std::uint32_t)VulkanManager::align(meshes_mem_reqs[i].size, meshes_mem_reqs[i + 1].alignment)
                     : (std::uint32_t)VulkanManager::align(meshes_mem_reqs[i].size, scene_mem_reqs.alignment);
