@@ -48,7 +48,7 @@ namespace PathTracer
             ao_id_ = manager_->CreateBuffer(ao_id_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             scratch_trace_ = manager_->CreateBuffer(scratch_trace_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-            InitMemoryForBuffers(num_rays,vertices, indices, shapes);
+            InitMemoryForBuffers(num_rays, vertices, indices, shapes);
         }
 
         VkDeviceSize GetBufferMemorySize(VkScopedObject<VkBuffer> buffer)
@@ -149,12 +149,14 @@ namespace PathTracer
     };
 
     Ao::Ao(std::shared_ptr<VulkanManager> manager)
-        : manager_ (manager)
+        : manager_(manager)
         , impl_(std::make_unique<AoImpl>(manager))
-    {}
+    {
+    }
 
     Ao::~Ao()
-    {}
+    {
+    }
 
     void Ao::Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays)
     {
@@ -201,7 +203,7 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // AoBuffer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Random
-                                     });
+                                            });
         impl_->ao_rays_pipeline_.Create("shaders/ao_rays.comp.spv", {
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
@@ -213,14 +215,14 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Shapes
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Indices
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Vertices
-                                 });
+                                        });
         impl_->ao_rays_resolve_pipeline_.Create("shaders/ao_rays_resolve.comp.spv", {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // AoBuffer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Hits
-                                         });
+                                                });
 
         impl_->ao_command_buffer_.Begin();
         vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->camera_rays_pipeline_.GetPipeline());

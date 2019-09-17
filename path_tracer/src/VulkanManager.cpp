@@ -320,11 +320,11 @@ namespace PathTracer
         uint32_t queue_family_index = 0xFFFFFFFF;
 
         if (!InitDevice(device_, queue_,
-                       capabilities,
-                       formats,
-                       present_modes,
-                       queue_family_index,
-                       instance_, surface_))
+                        capabilities,
+                        formats,
+                        present_modes,
+                        queue_family_index,
+                        instance_, surface_))
         {
             std::cerr << "Fatal error: Unable to create the Vulkan device" << std::endl;
             return false;

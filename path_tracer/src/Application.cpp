@@ -18,10 +18,12 @@ namespace PathTracer
         , orbit_(glm::vec3(500.0f, 400.0f, 0.0f), glm::vec3(-200.0f, 300.0f, 0.0f))
         , view_projection_(0.0f)
         , sample_count_(0)
-    {}
+    {
+    }
 
     Application::~Application()
-    {}
+    {
+    }
 
     // Gets the semaphore to be waiting on
     VkSemaphore& Application::WaitSemaphore()
