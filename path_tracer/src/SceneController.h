@@ -36,6 +36,8 @@ namespace PathTracer
         }
 
         bool ParseObj(char const* filename);
+        bool ParseTex(char const* filename);
+
         std::string path_;
     };
 

@@ -4,6 +4,8 @@
 #include <tiny_obj_loader.h>
 #include <algorithm>
 #include <iostream>
+#include "../externals/soil2/src/SOIL2/SOIL2.h"
+#include "../externals/soil2/src/SOIL2/stb_image.h"
 
 namespace PathTracer
 {
@@ -186,5 +188,48 @@ namespace PathTracer
 
         return true;
     }
+
+    bool Scene::ParseTex(char const* filename)
+    {
+        std::int32_t width, height, channel_count;
+        auto* data = SOIL_load_image(filename, &width, &height, &channel_count, SOIL_LOAD_AUTO);
+
+        if (!data)
+        {
+            std::cout << "Failed to load " << filename << " due to " << SOIL_last_result();
+            return false;
+        }
+        //else
+        //{
+        //    auto const texture_handle = CreateObject<Texture>();
+        //    auto& texture = *GetObject<Texture>(texture_handle);
+
+        //    texture.width_ = static_cast<uint32_t>(width);
+        //    texture.height_ = static_cast<uint32_t>(height);
+        //    texture.channel_count_ = static_cast<uint32_t>(channel_count);
+        //    texture.data_ = std::make_unique<std::uint8_t[]>(channel_count * width * height);
+
+        //    Meta texture_meta;
+        //    texture_meta.SetProperty(Meta::kAssetName, GetAssetName(filename));
+        //    texture_meta.SetProperty(Meta::kAssetFilename, GetFileName(filename));
+        //    texture_meta.SetProperty(Meta::kAssetFilepath, GetRelativePath(filename));
+
+        //    SetMeta<Texture>(texture_handle, texture_meta);
+
+        //    ThreadPool().Dispatch([&](std::uint32_t i)
+        //    {
+        //        for (auto j = 0u; j < texture.channel_count_; ++j)
+        //        {
+        //            texture.data_[i * texture.channel_count_ + j] = data[i * texture.channel_count_ + j];
+        //        }
+        //    },
+        //        texture.width_ * texture.height_);
+
+        //    SOIL_free_image_data(data);
+        //}
+
+        return true;
+    }
+
 
 }

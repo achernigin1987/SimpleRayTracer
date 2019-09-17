@@ -296,11 +296,12 @@ namespace PathTracer
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Trace the ambient occlusion rays
+        // it is not necessary to trace full hit
         status = rrCmdTraceRaysIndirect(
             context_,
             top_level_structure_,
             RR_QUERY_TYPE_INTERSECT,
-            RR_OUTPUT_TYPE_FULL_HIT,    // TODO: no need for full hit info here (gboisse)
+            RR_OUTPUT_TYPE_FULL_HIT,
             0u,
             impl_->ao_rays_.get(),
             impl_->hits_.get(),
