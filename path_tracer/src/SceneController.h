@@ -4,10 +4,16 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <glm/glm.hpp>
 
 namespace PathTracer
 {
+    constexpr uint32_t INVALID_ID = std::numeric_limits<uint32_t>::max();
+
     class Mesh;
+    class Material;
+    class Texture;
+
 
     class Scene
     {
@@ -27,6 +33,8 @@ namespace PathTracer
 
         // Scene data
         std::vector<Mesh> meshes_;
+        std::vector<Material> materials_;
+        std::vector<Texture> textures_;
 
     private:
         static inline char const* GetFileExtension(char const* filename)
@@ -41,15 +49,77 @@ namespace PathTracer
         std::string path_;
     };
 
+
+    struct Texture
+    {
+        Texture(uint32_t width, uint32_t height, uint32_t channel_count)
+            : upside_down_(false)
+        {
+            width_ = width;
+            height_ = height;
+            channel_count_ = channel_count;
+            data_.resize(channel_count * width * height);
+        }
+
+        // Whether the texture needs flipping.
+        bool upside_down_;
+        uint32_t width_;
+        uint32_t height_;
+        uint32_t channel_count_;
+        std::vector<uint8_t> data_;
+    };
+
+    class Material
+    {
+    public:
+        Material()
+            : albedo_(0.7f)
+            , roughness_(1.0f)
+            , metalness_(0.0f)
+            , transparency_(0.0f)
+            , reflection_ior_(1.5f)
+            , refraction_ior_(1.0f)
+            , albedo_map_(INVALID_ID)
+            , roughness_map_(INVALID_ID)
+            , metalness_map_(INVALID_ID)
+            , normal_map_(INVALID_ID)
+        {
+        }
+
+        // The albedo.
+        glm::vec3 albedo_;
+        // The roughness.
+        float roughness_;
+        // The metalness.
+        float metalness_;
+        // The transparency.
+        float transparency_;
+        // The reflection IOR.
+        float reflection_ior_;
+        // The refraction IOR.
+        float refraction_ior_;
+
+        // The albedo map.
+        uint32_t albedo_map_;
+        // The roughness map.
+        uint32_t roughness_map_;
+        // The metalness map.
+        uint32_t metalness_map_;
+        // The normal map.
+        uint32_t normal_map_;
+    };
+
     class Mesh
     {
     public:
-        Mesh(std::string const& name, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, uint32_t vertex_stride, uint32_t index_stride)
+        Mesh(std::string const& name, std::vector<float> const& vertices, std::vector<uint32_t> const& indices,
+             uint32_t vertex_stride, uint32_t index_stride, uint32_t material_id)
             : name_(name)
             , vertices_(vertices)
             , vertex_stride_(vertex_stride)
             , indices_(indices)
             , index_stride_(index_stride)
+            , material_id_(material_id)
         {
         }
 
@@ -107,5 +177,7 @@ namespace PathTracer
         uint32_t vertex_stride_;
         std::vector<uint32_t> indices_;
         uint32_t index_stride_;
+        uint32_t material_id_;
     };
+
 }
