@@ -5,6 +5,8 @@
 
 namespace PathTracer
 {
+    constexpr auto const kMaxTextures = 512u;
+
     struct Ao::AoImpl
     {
         AoImpl(std::shared_ptr<VulkanManager> manager)
@@ -15,7 +17,8 @@ namespace PathTracer
             , ao_rays_resolve_pipeline_(manager_)
         {
         }
-        void Init(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes, VkDeviceSize scratch_trace_size)
+        void Init(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes,
+                  std::vector<Material> const& materials, std::vector<Texture> const& textures, VkDeviceSize scratch_trace_size)
         {
             fence_ = manager_->CreateFence();
 
@@ -135,6 +138,9 @@ namespace PathTracer
         VkScopedObject<VkBuffer> random_;
         VkScopedObject<VkBuffer> ao_;
         VkScopedObject<VkBuffer> ao_id_;
+
+        // 
+        std::vector<VkDescriptorImageInfo> image_infos;
         // The fence to be signalled
         VkScopedObject<VkFence> fence_;
         // pipelines
@@ -176,6 +182,7 @@ namespace PathTracer
             shape.count_ = mesh.GetIndexCount();
             shape.base_vertex_ = base_vertex;
             shape.first_index_ = first_index;
+            shape.material_id = mesh.Material();
 
             std::copy(mesh.Indices(), mesh.Indices() + mesh.GetIndexSize(), std::back_inserter(indices));
             std::copy(mesh.Vertices(), mesh.Vertices() + mesh.GetVertexSize(), std::back_inserter(vertices));
@@ -187,7 +194,7 @@ namespace PathTracer
         VkMemoryRequirements accel_trace_mem_reqs;
         rrGetAccelerationStructureTraceScratchMemoryRequirements(context_, top_level_structure, num_rays, &accel_trace_mem_reqs);
         VkDeviceSize scratch_trace_size = accel_trace_mem_reqs.size;
-        impl_->Init(num_rays, vertices, indices, shapes, scratch_trace_size);
+        impl_->Init(num_rays, vertices, indices, shapes, scene.materials_, scene.textures_, scratch_trace_size);
 
         PrepareCommandBuffer(num_rays);
     }

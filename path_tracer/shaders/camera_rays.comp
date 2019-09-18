@@ -21,23 +21,10 @@ THE SOFTWARE.
 ********************************************************************/
 
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
+#include "common.h"
 #define CMJ_DIM 16
-
-struct Sampler
-{
-    uint index;
-    uint scramble;
-    uint dimension;
-};
-
-struct Ray
-{
-    vec3 direction;
-    float time;
-    vec3 origin;
-    float max_t;
-};
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 

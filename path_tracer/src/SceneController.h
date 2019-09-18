@@ -171,6 +171,11 @@ namespace PathTracer
             return index_stride_;
         }
 
+        uint32_t Material() const
+        {
+            return material_id_;
+        }
+
     private:
         std::string name_;
         std::vector<float> vertices_;

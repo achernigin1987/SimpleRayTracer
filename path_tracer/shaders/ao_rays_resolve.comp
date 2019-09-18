@@ -21,23 +21,10 @@ THE SOFTWARE.
 ********************************************************************/
 
 #version 450
+#extension GL_GOOGLE_include_directive : enable
 
-#define INVALID_ADDR 0xffffffffu
-
-struct Hit
-{
-    uint shape_id;
-    uint prim_id;
-    vec2 uv;
-};
-
-struct Ray
-{
-    vec3 direction;
-    float time;
-    vec3 origin;
-    float max_t;
-};
+#include "common.h"
+#define MAX_TEXTURES 512
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -46,6 +33,10 @@ layout(binding = 1) buffer Color    { uint  color[];    };
 layout(binding = 2) buffer Ids      { uint  ids[];      };
 layout(binding = 3) buffer RayCount { uint  rayCount;   };
 layout(binding = 4) buffer Hits     { Hit   hits[];     };
+layout(binding = 5) buffer Shapes   { Shape shapes[];   };
+layout(binding = 6) buffer Materials {Material materials[]; };
+layout(binding = 7) uniform sampler2D textures[MAX_TEXTURES];
+
 
 uint PackColor(in vec4 color)
 {

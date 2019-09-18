@@ -15,13 +15,12 @@
 
 namespace PathTracer
 {
-    // geometry parameters
     struct Shape
     {
         uint32_t count_;
         uint32_t first_index_;
         uint32_t base_vertex_;
-        uint32_t padding_;
+        uint32_t material_id;
     };
 
     // View parameters
