@@ -85,6 +85,31 @@ namespace PathTracer
                                   VkPipelineStageFlags src_stage,
                                   VkPipelineStageFlags dst_stage,
                                   VkCommandBuffer& command_buffer) const;
+        void CreateImage(uint32_t width,
+                         uint32_t height,
+                         VkFormat format,
+                         VkImageTiling tiling,
+                         VkImageUsageFlags usage,
+                         VkMemoryPropertyFlags properties,
+                         VkScopedObject <VkImage>& image,
+                         VkScopedObject<VkDeviceMemory>& imageMemory) const;
+
+        void CreateTextureImage(uint8_t const* pixels,
+                                int texWidth,
+                                int texHeight,
+                                int texChannels,
+                                VkScopedObject <VkImage>& textureImage,
+                                VkScopedObject<VkDeviceMemory>& textureImageMemory) const;
+
+        void TransitionImageLayout(VkImage image,
+                                   VkFormat format,
+                                   VkImageLayout oldLayout,
+                                   VkImageLayout newLayout) const;
+
+        void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const;
+        VkScopedObject<VkImageView> CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags) const;
+        VkScopedObject<VkSampler> CreateTextureSampler() const;
+
         VkScopedObject<VkFence> CreateFence() const;
 
         template<typename T>

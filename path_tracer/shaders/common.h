@@ -27,7 +27,7 @@ struct Shape
     uint count;
     uint first_index;
     uint base_vertex;
-    uint padding;
+    uint material;
 };
 
 struct Vertex

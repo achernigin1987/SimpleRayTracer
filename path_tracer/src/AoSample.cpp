@@ -36,6 +36,7 @@ namespace PathTracer
             VkDeviceSize hits_size = VkDeviceSize(num_rays * sizeof(RrHit));
             VkDeviceSize ao_size = VkDeviceSize(num_rays * sizeof(glm::uvec2));
             VkDeviceSize ao_id_size = VkDeviceSize(num_rays * sizeof(uint32_t));
+            VkDeviceSize materials_size = VkDeviceSize(materials.size() * sizeof(Material));
 
             params_ = manager_->CreateBuffer(params_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
             indices_ = manager_->CreateBuffer(indices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -50,8 +51,9 @@ namespace PathTracer
             ao_ = manager_->CreateBuffer(ao_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             ao_id_ = manager_->CreateBuffer(ao_id_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             scratch_trace_ = manager_->CreateBuffer(scratch_trace_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+            materials_ = manager_->CreateBuffer(materials_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-            InitMemoryForBuffers(num_rays, vertices, indices, shapes);
+            InitMemoryForBuffers(num_rays, vertices, indices, shapes, materials, textures);
         }
 
         VkDeviceSize GetBufferMemorySize(VkScopedObject<VkBuffer> buffer)
@@ -59,6 +61,41 @@ namespace PathTracer
             auto mem_req = manager_->GetBufferMemoryRequirements(buffer.get());
             VkDeviceSize offset = VulkanManager::align(mem_req.size, mem_req.alignment);
             return offset;
+        }
+
+        void CreateTextureImages(const std::vector<Texture>& textures)
+        {
+            // If no textures are present, create a dummy one to accommodate the pipeline layout
+            if (textures.empty())
+            {
+                int          tex_width = 1, tex_height = 1;
+                int          tex_channels = 4;
+                glm::u8vec4* color = new glm::u8vec4(255, 0, 255, 255);
+                uint8_t*     pixels = reinterpret_cast<uint8_t*>(color);
+
+                VkScopedObject<VkImage> texture_image;
+                VkScopedObject<VkDeviceMemory> texture_image_memory;
+                manager_->CreateTextureImage(pixels, tex_width, tex_height, tex_channels, texture_image, texture_image_memory);
+
+                texture_image_.push_back(texture_image);
+                texture_image_memory_.push_back(texture_image_memory);
+                texture_image_view_.push_back(manager_->CreateImageView(texture_image.get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT));
+                texture_sampler_.push_back(manager_->CreateTextureSampler());
+                return;
+            }
+
+
+            for (auto const& texture : textures)
+            {
+                VkScopedObject<VkImage> texture_image;
+                VkScopedObject<VkDeviceMemory> texture_image_memory;
+                manager_->CreateTextureImage(texture.data_.data(), texture.width_, texture.height_, texture.channel_count_, texture_image, texture_image_memory);
+                texture_image_.push_back(texture_image);
+                texture_image_memory_.push_back(texture_image_memory);
+
+                texture_image_view_.push_back(manager_->CreateImageView(texture_image.get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT));
+                texture_sampler_.push_back(manager_->CreateTextureSampler());
+            }
         }
 
         void WaitForFence()
@@ -83,7 +120,9 @@ namespace PathTracer
             vkResetFences(manager_->device_, 1, &fence);
         }
 
-        void InitMemoryForBuffers(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes)
+        void InitMemoryForBuffers(uint32_t num_rays, std::vector<float> const& vertices,
+                                  std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes,
+                                  std::vector<Material> const& materials, std::vector<Texture> const& textures)
         {
             VkDeviceSize indices_offset = GetBufferMemorySize(params_);
             VkDeviceSize vertices_offset = indices_offset + GetBufferMemorySize(indices_);
@@ -98,8 +137,9 @@ namespace PathTracer
             VkDeviceSize ao_offset = hits_offset + GetBufferMemorySize(hits_);
             VkDeviceSize ao_id_offset = ao_offset + GetBufferMemorySize(ao_);
             VkDeviceSize scratch_offset = ao_id_offset + GetBufferMemorySize(ao_id_);
+            VkDeviceSize materials_offset = scratch_offset + GetBufferMemorySize(scratch_trace_);
 
-            VkDeviceSize overall_memory_size = scratch_offset + GetBufferMemorySize(scratch_trace_);
+            VkDeviceSize overall_memory_size = materials_offset + GetBufferMemorySize(scratch_trace_);
 
             auto memory_index = manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
             memory_ = manager_->AllocateDeviceMemory(memory_index, overall_memory_size);
@@ -117,6 +157,7 @@ namespace PathTracer
             manager_->BindBufferMemory(ao_.get(), memory_.get(), ao_offset);
             manager_->BindBufferMemory(ao_id_.get(), memory_.get(), ao_id_offset);
             manager_->BindBufferMemory(scratch_trace_.get(), memory_.get(), scratch_offset);
+            manager_->BindBufferMemory(materials_.get(), memory_.get(), materials_offset);
 
             void* indices_ptr = manager_->MapMemory(memory_.get(), indices_offset, indices.size() * sizeof(uint32_t));
             memcpy(indices_ptr, indices.data(), indices.size() * sizeof(uint32_t));
@@ -130,6 +171,10 @@ namespace PathTracer
             memcpy(shapes_ptr, shapes.data(), shapes.size() * sizeof(Shape));
             manager_->UnmapMemory(memory_.get(), shapes_offset, shapes.size() * sizeof(Shape));
 
+            void* materials_ptr = manager_->MapMemory(memory_.get(), materials_offset, materials.size() * sizeof(Material));
+            memcpy(materials_ptr, materials.data(), materials.size() * sizeof(Material));
+            manager_->UnmapMemory(memory_.get(), materials_offset, materials.size() * sizeof(Material));
+
             void* random_ptr = manager_->MapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
             std::random_device dev;
             std::mt19937 rng(dev());
@@ -141,6 +186,17 @@ namespace PathTracer
                 random_data[i] = dist6(rng);
             }
             manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
+
+            CreateTextureImages(textures);
+
+            for (size_t i = 0; i < texture_sampler_.size(); ++i)
+            {
+                VkDescriptorImageInfo image_info = {};
+                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info.imageView = texture_image_view_[i].get();
+                image_info.sampler = texture_sampler_[i].get();
+                image_infos_.push_back(image_info);
+            }
         }
 
         // vulkan manager
@@ -153,6 +209,7 @@ namespace PathTracer
         VkScopedObject<VkBuffer> color_;
         VkScopedObject<VkBuffer> params_;
         VkScopedObject<VkBuffer> scratch_trace_;
+        VkScopedObject<VkBuffer> materials_;
         VkScopedObject<VkBuffer> camera_rays_;
         VkScopedObject<VkBuffer> ao_rays_;
         VkScopedObject<VkBuffer> ao_count_;
@@ -163,8 +220,12 @@ namespace PathTracer
 
         VkDeviceSize color_offset_;
         VkDeviceSize color_size_;
-        // 
-        std::vector<VkDescriptorImageInfo> image_infos;
+        // textures
+        std::vector<VkDescriptorImageInfo> image_infos_;
+        std::vector<VkScopedObject<VkImage>> texture_image_;
+        std::vector<VkScopedObject<VkDeviceMemory>> texture_image_memory_;
+        std::vector<VkScopedObject<VkImageView>> texture_image_view_;
+        std::vector<VkScopedObject<VkSampler>> texture_sampler_;
         // The fence to be signalled
         VkScopedObject<VkFence> fence_;
         // pipelines
@@ -252,7 +313,12 @@ namespace PathTracer
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Hits
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Hits
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Shapes
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Indices
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Vertices
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Materials
+            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER // Textures
                                                 });
 
         impl_->ao_command_buffer_.Begin();
@@ -358,7 +424,12 @@ namespace PathTracer
             impl_->color_.get(),
             impl_->ao_id_.get(),
             impl_->ao_count_.get(),
-            impl_->hits_.get()
+            impl_->hits_.get(),
+            impl_->shapes_.get(),
+            impl_->indices_.get(),
+            impl_->vertices_.get(),
+            impl_->materials_.get(),
+            impl_->image_infos_
         };
         VkDescriptorSet ao_rays_resolve_desc = impl_->ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
         vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);

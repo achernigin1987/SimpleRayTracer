@@ -251,6 +251,7 @@ namespace
         // Create the Vulkan device
         VkPhysicalDeviceFeatures deviceFeatures = {};
         deviceFeatures.shaderInt64 = VK_TRUE;
+        deviceFeatures.samplerAnisotropy = VK_TRUE;
 
         VkDeviceCreateInfo createInfo = {};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -723,6 +724,184 @@ namespace PathTracer
                              nullptr);
     }
 
+    void VulkanManager::CreateImage(uint32_t width,
+                                    uint32_t height,
+                                    VkFormat format,
+                                    VkImageTiling tiling,
+                                    VkImageUsageFlags usage,
+                                    VkMemoryPropertyFlags properties,
+                                    VkScopedObject <VkImage>& image,
+                                    VkScopedObject<VkDeviceMemory>& imageMemory) const
+    {
+        VkImageCreateInfo image_info = {};
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image_info.imageType = VK_IMAGE_TYPE_2D;
+        image_info.extent.width = width;
+        image_info.extent.height = height;
+        image_info.extent.depth = 1;
+        image_info.mipLevels = 1;
+        image_info.arrayLayers = 1;
+        image_info.format = format;
+        image_info.tiling = tiling;
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.usage = usage;
+        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VkImage img;
+        if (vkCreateImage(device_, &image_info, nullptr, &img) != VK_SUCCESS)
+        {
+            throw std::runtime_error("failed to create image!");
+        }
+
+        VkMemoryRequirements mem_requirements;
+        vkGetImageMemoryRequirements(device_, img, &mem_requirements);
+
+        imageMemory = AllocateDeviceMemory(FindDeviceMemoryIndex(properties), mem_requirements.size);
+
+        vkBindImageMemory(device_, img, imageMemory.get(), 0);
+
+        image = VkScopedObject<VkImage>(img, [this](VkImage img)
+        {
+            vkDestroyImage(device_, img, nullptr);
+        });
+    }
+
+    void VulkanManager::TransitionImageLayout(VkImage       image,
+                                              VkFormat      format,
+                                              VkImageLayout old_layout,
+                                              VkImageLayout new_layout) const
+    {
+        CommandBuffer command_buffer(command_pool_, device_);
+        command_buffer.Begin();
+        VkImageMemoryBarrier barrier = {};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        barrier.srcAccessMask = 0;  //
+        barrier.dstAccessMask = 0;  //
+
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+
+        if (new_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        {
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+            if (format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT)
+            {
+                barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+        }
+        else
+        {
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+
+        if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED
+            && (new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                || new_layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL))
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                 && new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        else if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED
+                 && new_layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask =
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        }
+        else
+        {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+
+        vkCmdPipelineBarrier(command_buffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        command_buffer.End();
+        command_buffer.SubmitWait(queue_);
+    }
+
+    void VulkanManager::CreateTextureImage(uint8_t const* pixels,
+                                           int tex_width,
+                                           int tex_height,
+                                           int tex_channels,
+                                           VkScopedObject <VkImage>& image,
+                                           VkScopedObject<VkDeviceMemory>& image_memory) const
+    {
+        VkDeviceSize image_size = tex_width * tex_height * tex_channels;
+
+        auto staging_buffer = CreateBuffer(image_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        VkMemoryRequirements mem_requirements;
+        vkGetBufferMemoryRequirements(device_, staging_buffer.get(), &mem_requirements);
+        auto staging_buf_memory = AllocateDeviceMemory(FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+                                                       mem_requirements.size);
+        BindBufferMemory(staging_buffer.get(), staging_buf_memory.get(), 0u);
+
+        void* data;
+        vkMapMemory(device_, staging_buf_memory.get(), 0u, image_size, 0, &data);
+        memcpy(data, pixels, static_cast<size_t>(image_size));
+        vkUnmapMemory(device_, staging_buf_memory.get());
+
+        CreateImage(tex_width, tex_height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL,
+                    VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, image, image_memory);
+
+        TransitionImageLayout(image.get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        CopyBufferToImage(staging_buffer.get(), image.get(), tex_width, tex_height);
+        TransitionImageLayout(image.get(), VK_FORMAT_R8G8B8A8_UNORM,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+
+    void VulkanManager::CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) const
+    {
+        CommandBuffer command_buffer(command_pool_, device_);
+        command_buffer.Begin();
+        VkBufferImageCopy region = {};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = { 0, 0, 0 };
+        region.imageExtent = { width, height, 1 };
+
+        vkCmdCopyBufferToImage(command_buffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                               &region);
+
+        command_buffer.End();
+        command_buffer.SubmitWait(queue_);
+    }
+
     void VulkanManager::EncodeBufferBarriers(VkBuffer const* buffers,
                                              std::uint32_t buffer_count,
                                              VkAccessFlags src_access,
@@ -835,6 +1014,65 @@ namespace PathTracer
         }
 
         return blit_command_buffers;
+    }
+
+    VkScopedObject<VkImageView> VulkanManager::CreateImageView(VkImage image,
+                                                               VkFormat format,
+                                                               VkImageAspectFlags aspect_flags) const
+    {
+        VkImageViewCreateInfo view_info = {};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = image;
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = format;
+        view_info.subresourceRange.aspectMask = aspect_flags;
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
+
+        VkImageView image_view;
+        if (vkCreateImageView(device_, &view_info, nullptr, &image_view) != VK_SUCCESS)
+        {
+            throw std::runtime_error("failed to create texture image view!");
+        }
+
+        auto scoped_image_view = VkScopedObject<VkImageView>(image_view, [this](VkImageView image_view)
+        {
+            vkDestroyImageView(device_, image_view, nullptr);
+        });
+
+        return scoped_image_view;
+    }
+
+    VkScopedObject<VkSampler> VulkanManager::CreateTextureSampler() const
+    {
+        VkSamplerCreateInfo sampler_info = {};
+        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler_info.magFilter = VK_FILTER_LINEAR;
+        sampler_info.minFilter = VK_FILTER_LINEAR;
+        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_info.anisotropyEnable = VK_TRUE;
+        sampler_info.maxAnisotropy = 16;
+        sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        sampler_info.unnormalizedCoordinates = VK_FALSE;
+        sampler_info.compareEnable = VK_FALSE;
+        sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+        sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        VkSampler texture_sampler;
+        if (vkCreateSampler(device_, &sampler_info, nullptr, &texture_sampler) != VK_SUCCESS)
+        {
+            throw std::runtime_error("failed to create texture sampler!");
+        }
+
+        auto scoped_texture_sampler = VkScopedObject<VkSampler>(texture_sampler, [this](VkSampler sampler)
+        {
+            vkDestroySampler(device_, sampler, nullptr);
+        });
+
+        return scoped_texture_sampler;
     }
 
     CommandBuffer::CommandBuffer(VkCommandPool command_pool, VkDevice device)

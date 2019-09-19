@@ -18,6 +18,14 @@ namespace PathTracer
         , range_(range)
     {}
 
+    Binding::Binding(std::vector<VkDescriptorImageInfo> const& infos)
+        : buffer_(VK_NULL_HANDLE)
+        , offset_(0u)
+        , range_(0u)
+        , image_infos_(infos)
+    {
+    }
+
 
     // Constructor
     Pipeline::Pipeline(std::shared_ptr<VulkanManager> vk_manager)
@@ -195,7 +203,14 @@ namespace PathTracer
             write_descriptor_set.dstBinding = descriptor_set_layout_bindings_[binding].binding;
             write_descriptor_set.descriptorCount = 1;
             write_descriptor_set.descriptorType = descriptor_set_layout_bindings_[binding].descriptorType;
-            write_descriptor_set.pBufferInfo = &descriptor_buffer_info;
+            if (bindings[binding].image_infos_.empty())
+            {
+                write_descriptor_set.pBufferInfo = &descriptor_buffer_info;
+            }
+            else
+            {
+                write_descriptor_set.pImageInfo = bindings[binding].image_infos_.data();
+            }
         }
         vkUpdateDescriptorSets(device, binding_count, write_descriptor_sets.data(), 0, nullptr);
 

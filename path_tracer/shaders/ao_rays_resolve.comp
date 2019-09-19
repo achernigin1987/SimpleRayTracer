@@ -34,9 +34,35 @@ layout(binding = 2) buffer Ids      { uint  ids[];      };
 layout(binding = 3) buffer RayCount { uint  rayCount;   };
 layout(binding = 4) buffer Hits     { Hit   hits[];     };
 layout(binding = 5) buffer Shapes   { Shape shapes[];   };
-layout(binding = 6) buffer Materials {Material materials[]; };
-layout(binding = 7) uniform sampler2D textures[MAX_TEXTURES];
+layout(binding = 6) buffer Indices  { uint  indices[];    };
+layout(binding = 7) buffer Vertices { float vertices[];   };
+layout(binding = 8) buffer Materials { Material materials[]; };
+layout(binding = 9) uniform sampler2D textures[MAX_TEXTURES];
 
+Vertex LoadVertex(in uint index)
+{
+    Vertex vertex;
+
+    uint i = 12 * index;
+
+    vertex.position.x = vertices[i++];
+    vertex.position.y = vertices[i++];
+    vertex.position.z = vertices[i++];
+
+    vertex.normal.x = vertices[i++];
+    vertex.normal.y = vertices[i++];
+    vertex.normal.z = vertices[i++];
+
+    vertex.texcoords.x = vertices[i++];
+    vertex.texcoords.y = vertices[i++];
+    ++i;    // unused padding
+
+    vertex.color.x = vertices[i++];
+    vertex.color.y = vertices[i++];
+    vertex.color.z = vertices[i++];
+
+    return vertex;
+}
 
 uint PackColor(in vec4 color)
 {
@@ -61,7 +87,32 @@ void main()
     const uint pixel_idx = ids[tid];
     aoBuffer[pixel_idx] += uvec2(hit.shape_id == INVALID_ADDR ? 1 : 0, 1);
     float pixel_color = sqrt(float(aoBuffer[pixel_idx].x) / float(aoBuffer[pixel_idx].y));
+    // Check if we've hit some geometry
+    if (hit.shape_id != INVALID_ADDR)
+    {
+        // Otherwise, load the vertices
+        Shape shape = shapes[hit.shape_id];
+        Vertex v0 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 0]);
+        Vertex v1 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 1]);
+        Vertex v2 = LoadVertex(shape.base_vertex + indices[shape.first_index + 3 * hit.prim_id + 2]);
+
+        Material mat = materials[shape.material];
+        vec3 c = mat.albedo;
+        if (mat.albedo_map != INVALID_ADDR)
+        {
+            vec2 uv = v1.texcoords * hit.uv.x + v2.texcoords * hit.uv.y +
+                              v0.texcoords * (1.0f - hit.uv.x - hit.uv.y);
+            vec4 tex_color = texture(textures[mat.albedo_map], uv);
+            c *= tex_color.xyz;
+            color[pixel_idx] = PackColor(vec4(c + vec3(pixel_color), 1.0f));
+        }
+        else
+        {
+            color[pixel_idx] = PackColor(vec4(c, 1.0f));
+        }
+        return;
+    }
 
     // Write the color out to memory
-    color[pixel_idx] = PackColor(vec4(vec3(pixel_color), 1.0f));
+    //color[pixel_idx] = PackColor(vec4(vec3(pixel_color), 1.0f));
 }

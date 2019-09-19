@@ -13,6 +13,7 @@ namespace
 {
     unsigned char* load_image(const char *filename, int *width, int *height, int *channels, int force_channels)
     {
+        stbi_set_flip_vertically_on_load(1);
         unsigned char *result = stbi_load(filename, width, height, channels, force_channels);
         if (result == NULL)
         {
@@ -372,9 +373,9 @@ namespace PathTracer
         std::int32_t width, height, channel_count;
         try
         {
-            auto* data = load_image(filename, &width, &height, &channel_count, 0);
+            auto* data = load_image(filename, &width, &height, &channel_count, STBI_rgb_alpha);
 
-            auto texture = Texture(width, height, channel_count);
+            auto texture = Texture(width, height, 4u);
             for (auto i = 0u; i < texture.width_ * texture.height_; i++)
             {
                 for (auto j = 0u; j < texture.channel_count_; ++j)

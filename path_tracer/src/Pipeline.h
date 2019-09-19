@@ -37,13 +37,15 @@ namespace PathTracer
     public:
         Binding();
         Binding(VkBuffer const& buffer, VkDeviceSize offset = 0u, VkDeviceSize range = VK_WHOLE_SIZE);
-
+        Binding(std::vector<VkDescriptorImageInfo> const&);
         // The buffer to be bound
         VkBuffer buffer_;
         // The offset for the buffer range
         VkDeviceSize offset_;
         // The size of the buffer range
         VkDeviceSize range_;
+        // image info
+        std::vector<VkDescriptorImageInfo> image_infos_;
     };
 
     // A helper for dealing with Vulkan pipeline objects
