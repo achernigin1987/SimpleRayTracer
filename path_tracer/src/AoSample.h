@@ -11,7 +11,9 @@ namespace PathTracer
         void Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays) override;
         VkResult Submit() override;
         void UpdateView(Params const& params) override;
-        VkBuffer GetColor() const override;
+        std::vector<uint32_t> GetColor() const override;
+        virtual VkBuffer GetColorBuffer() const override;
+        void SetColor(std::vector<uint32_t> const& color) override;
 
     private:
         void PrepareCommandBuffer(uint32_t num_rays);

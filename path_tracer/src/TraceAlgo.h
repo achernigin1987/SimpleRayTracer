@@ -40,6 +40,8 @@ namespace PathTracer
         virtual void Init(Scene const& scene, RrAccelerationStructure top_level_structure, RrContext context, uint32_t num_rays) = 0;
         virtual VkResult Submit() = 0;
         virtual void UpdateView(Params const& params) = 0;
-        virtual VkBuffer GetColor() const = 0;
+        virtual std::vector<uint32_t> GetColor() const = 0;
+        virtual VkBuffer GetColorBuffer() const = 0;
+        virtual void SetColor(std::vector<uint32_t> const&) = 0;
     };
 }

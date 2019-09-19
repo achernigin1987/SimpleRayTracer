@@ -28,7 +28,7 @@ namespace PathTracer
             VkDeviceSize shapes_size = VkDeviceSize(shapes.size() * sizeof(Shape));
             VkDeviceSize random_size = VkDeviceSize(num_rays * sizeof(uint32_t));
 
-            VkDeviceSize color_size = VkDeviceSize(num_rays * sizeof(uint32_t));
+            color_size_ = VkDeviceSize(num_rays * sizeof(uint32_t));
             VkDeviceSize camera_rays_size = VkDeviceSize(num_rays * sizeof(RrRay));
             VkDeviceSize ao_rays_size = VkDeviceSize(num_rays * sizeof(RrRay));
 
@@ -42,7 +42,7 @@ namespace PathTracer
             vertices_ = manager_->CreateBuffer(vertices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
             shapes_ = manager_->CreateBuffer(shapes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
             random_ = manager_->CreateBuffer(random_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            color_ = manager_->CreateBuffer(color_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            color_ = manager_->CreateBuffer(color_size_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
             camera_rays_ = manager_->CreateBuffer(camera_rays_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             ao_rays_ = manager_->CreateBuffer(ao_rays_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             ao_count_ = manager_->CreateBuffer(ao_count_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
@@ -61,14 +61,36 @@ namespace PathTracer
             return offset;
         }
 
+        void WaitForFence()
+        {
+            VkFence fence = fence_.get();
+            if (vkGetFenceStatus(manager_->device_, fence) == VK_NOT_READY)
+            {
+                auto timeout = 1000000000ull;   // 1 sec
+                for (;;)
+                {
+                    if (vkWaitForFences(manager_->device_, 1, &fence, VK_TRUE, timeout) == VK_SUCCESS)
+                    {
+                        break;
+                    }
+                    std::cout << "Performance warning: Waiting for fence to be signalled" << std::endl;
+                }
+            }
+        }
+        void ResetFence()
+        {
+            VkFence fence = fence_.get();
+            vkResetFences(manager_->device_, 1, &fence);
+        }
+
         void InitMemoryForBuffers(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes)
         {
             VkDeviceSize indices_offset = GetBufferMemorySize(params_);
             VkDeviceSize vertices_offset = indices_offset + GetBufferMemorySize(indices_);
             VkDeviceSize shapes_offset = vertices_offset + GetBufferMemorySize(vertices_);
             VkDeviceSize random_offset = shapes_offset + GetBufferMemorySize(shapes_);
-            VkDeviceSize color_offset = random_offset + GetBufferMemorySize(random_);
-            VkDeviceSize camera_rays_offset = color_offset + GetBufferMemorySize(color_);
+            color_offset_ = random_offset + GetBufferMemorySize(random_);
+            VkDeviceSize camera_rays_offset = color_offset_ + GetBufferMemorySize(color_);
 
             VkDeviceSize ao_rays_offset = camera_rays_offset + GetBufferMemorySize(camera_rays_);
             VkDeviceSize ao_count_offset = ao_rays_offset + GetBufferMemorySize(ao_rays_);
@@ -87,7 +109,7 @@ namespace PathTracer
             manager_->BindBufferMemory(vertices_.get(), memory_.get(), vertices_offset);
             manager_->BindBufferMemory(shapes_.get(), memory_.get(), shapes_offset);
             manager_->BindBufferMemory(random_.get(), memory_.get(), random_offset);
-            manager_->BindBufferMemory(color_.get(), memory_.get(), color_offset);
+            manager_->BindBufferMemory(color_.get(), memory_.get(), color_offset_);
             manager_->BindBufferMemory(camera_rays_.get(), memory_.get(), camera_rays_offset);
             manager_->BindBufferMemory(ao_rays_.get(), memory_.get(), ao_rays_offset);
             manager_->BindBufferMemory(ao_count_.get(), memory_.get(), ao_count_offset);
@@ -139,6 +161,8 @@ namespace PathTracer
         VkScopedObject<VkBuffer> ao_;
         VkScopedObject<VkBuffer> ao_id_;
 
+        VkDeviceSize color_offset_;
+        VkDeviceSize color_size_;
         // 
         std::vector<VkDescriptorImageInfo> image_infos;
         // The fence to be signalled
@@ -356,27 +380,35 @@ namespace PathTracer
     void Ao::UpdateView(Params const & params)
     {
         void* params_ptr = manager_->MapMemory(impl_->memory_.get(), 0u, sizeof(Params));
-        VkFence fence = impl_->fence_.get();
-        if (vkGetFenceStatus(manager_->device_, fence) == VK_NOT_READY)
-        {
-            auto timeout = 1000000000ull;   // 1 sec
-            for (;;)
-            {
-                if (vkWaitForFences(manager_->device_, 1, &fence, VK_TRUE, timeout) == VK_SUCCESS)
-                {
-                    break;
-                }
-                std::cout << "Performance warning: Waiting for fence to be signalled" << std::endl;
-            }
-        }
-        vkResetFences(manager_->device_, 1, &fence);
+        impl_->WaitForFence();
+        impl_->ResetFence();
 
         // Transfer the shader parameters to device memory
         memcpy(params_ptr, &params, sizeof(Params));
         manager_->UnmapMemory(impl_->memory_.get(), 0u, sizeof(Params));
     }
-    VkBuffer Ao::GetColor() const
+    std::vector<uint32_t> Ao::GetColor() const
+    {
+        std::vector<uint32_t> color(impl_->color_size_ / sizeof(uint32_t));
+        void* color_ptr = manager_->MapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        impl_->WaitForFence();
+
+        memcpy(color.data(), color_ptr, impl_->color_size_);
+        manager_->UnmapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+
+        return color;
+    }
+
+    VkBuffer Ao::GetColorBuffer() const
     {
         return impl_->color_.get();
+    }
+
+    void Ao::SetColor(std::vector<uint32_t> const& color)
+    {
+        impl_->WaitForFence();
+        void* color_ptr = manager_->MapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        memcpy(color_ptr, color.data(), impl_->color_size_);
+        manager_->UnmapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
     }
 }
