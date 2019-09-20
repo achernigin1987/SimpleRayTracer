@@ -1,5 +1,6 @@
 #include "image.h"
 
+#include "dtype.h"
 #include "utils.h"
 
 #include <stdexcept>
@@ -8,6 +9,16 @@
 
 namespace ML {
 
+ml_image Image::MakeHandle(Image* image)
+{
+    return reinterpret_cast<ml_image>(image);
+}
+
+Image* Image::FromHandle(ml_image image)
+{
+    return reinterpret_cast<Image*>(image);
+}
+
 Image::Image(ml_image_info const* info)
 {
     if (info == nullptr)
@@ -15,10 +26,7 @@ Image::Image(ml_image_info const* info)
         throw std::runtime_error("Bad image information argument");
     }
 
-    if (info->dtype != ML_FLOAT32)
-    {
-        throw std::runtime_error("Unsupported image data type: " + std::to_string(info->dtype));
-    }
+    size_t item_size = DataTypeSize(info->dtype);
 
     auto validate_dim = [info](auto dim, char const* name)
     {
@@ -32,7 +40,7 @@ Image::Image(ml_image_info const* info)
     ForEachDim(validate_dim);
 
     m_info = *info;
-    m_data.resize(m_info.width * m_info.height * m_info.channels * sizeof(float));
+    m_data.resize(m_info.width * m_info.height * m_info.channels * item_size);
 }
 
 ml_status Image::GetInfo(ml_image_info* info) const

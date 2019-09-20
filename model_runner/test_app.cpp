@@ -1,4 +1,4 @@
-#include "ml.h"
+#include "model_runner.h"
 
 #include <cstring>
 #include <fstream>
@@ -227,26 +227,9 @@ try
     std::size_t height = 0;
     parser.AddArg(&height, "h", "Input image height");
 
-    float gpu_memory_fraction = 0;
-    parser.AddArg(&gpu_memory_fraction,
-        "gmf", "Amount of GPU memory to use (0, 1], unset by default", true);
-
-    std::string visible_devices;
-    parser.AddArg(&visible_devices,
-        "vdl", "Comma-separated list of device indices to use, use all devices if omitted", true);
-
     parser.Parse(argc, argv);
 
     std::cerr << "Model path: " << model_path << "\n";
-
-    if (gpu_memory_fraction > 0)
-    {
-        std::cerr << "GPU memory fraction: " << gpu_memory_fraction << "\n";
-    }
-    if (!visible_devices.empty())
-    {
-        std::cerr << "Visible GPU devices: " << visible_devices << "\n";
-    }
 
     // Create a context
     ml_context context = mlCreateContext();
@@ -263,8 +246,6 @@ try
     params.model_path = model_path.c_str();
     params.input_node = input_node.empty() ? nullptr : input_node.c_str();
     params.output_node = output_node.empty() ? nullptr : output_node.c_str();
-    params.gpu_memory_fraction = gpu_memory_fraction;
-    params.visible_devices = visible_devices.empty() ? nullptr : visible_devices.c_str();
 
     // Create a model using the parameters
     ml_model model = mlCreateModel(context, &params);

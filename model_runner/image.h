@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ml.h"
+#include "model_runner.h"
 
 #include <vector>
 
@@ -10,15 +10,8 @@ namespace ML {
 class Image
 {
 public:
-    static ml_image MakeHandle(Image* image)
-    {
-        return reinterpret_cast<ml_image>(image);
-    }
-
-    static Image* FromHandle(ml_image image)
-    {
-        return reinterpret_cast<Image*>(image);
-    }
+    static ml_image MakeHandle(Image* image);
+    static Image* FromHandle(ml_image image);
 
     explicit Image(ml_image_info const* info);
 
