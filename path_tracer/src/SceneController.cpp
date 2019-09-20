@@ -6,8 +6,7 @@
 #include <algorithm>
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_PKM
-#include "../externals/soil2/src/SOIL2/stb_image.h"
+#include "../externals/stb_image.h"
 
 namespace
 {
@@ -24,10 +23,7 @@ namespace
     }
     void free_image_data(unsigned char *img_data)
     {
-        if (img_data)
-        {
-            free((void*)img_data);
-        }
+        stbi_image_free(img_data);
     }
 
 }
@@ -171,7 +167,7 @@ namespace PathTracer
                             tex.data_[tex.channel_count_ * i + j] = std::uint8_t(glm::pow(tex.data_[tex.channel_count_ * i + j] / 255.0f, 2.2f) * 255.0f + 0.5f);
                         }
                     }
-                    tex.upside_down_ = true;
+                    tex.upside_down_ = false;
                 }
             }
             if (!material.roughness_texname.empty())
@@ -192,7 +188,7 @@ namespace PathTracer
                     found_textures.emplace(texture, (uint32_t)textures_.size() - 1);
                     m.roughness_map_ = (uint32_t)textures_.size() - 1;
                     auto& tex = textures_[m.roughness_map_];
-                    tex.upside_down_ = true;
+                    tex.upside_down_ = false;
                 }
             }
             if (!material.metallic_texname.empty())
@@ -213,7 +209,7 @@ namespace PathTracer
                     found_textures.emplace(texture, (uint32_t)textures_.size() - 1);
                     m.metalness_map_ = (uint32_t)textures_.size() - 1;
                     auto& tex = textures_[m.metalness_map_];
-                    tex.upside_down_ = true;
+                    tex.upside_down_ = false;
                 }
             }
             if (!material.normal_texname.empty())
@@ -234,7 +230,7 @@ namespace PathTracer
                     found_textures.emplace(texture, (uint32_t)textures_.size() - 1);
                     m.normal_map_ = (uint32_t)textures_.size() - 1;
                     auto& tex = textures_[m.normal_map_];
-                    tex.upside_down_ = true;
+                    tex.upside_down_ = false;
                 }
             }
 
