@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ml.h"
+#include "model_runner.h"
 
 #include "tensorflow/core/public/session.h"
 
@@ -17,15 +17,8 @@ class Image;
 class Model
 {
 public:
-    static ml_model MakeHandle(Model* model)
-    {
-        return reinterpret_cast<ml_model>(model);
-    }
-
-    static Model* FromHandle(ml_model model)
-    {
-        return reinterpret_cast<Model*>(model);
-    }
+    static ml_model MakeHandle(Model* model);
+    static Model* FromHandle(ml_model model);
 
     explicit Model(ml_model_params const* params);
 

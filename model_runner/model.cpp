@@ -1,5 +1,6 @@
 #include "model.h"
 
+#include "dtype.h"
 #include "image.h"
 #include "utils.h"
 
@@ -16,122 +17,9 @@ namespace {
 tf::SessionOptions CreateSessionOptions(const ml_model_params& params)
 {
     tf::SessionOptions options;
-    auto* gpu_options = options.config.mutable_gpu_options();
-    if (params.gpu_memory_fraction > 0)
-    {
-        gpu_options->set_allow_growth(false);
-        gpu_options->set_per_process_gpu_memory_fraction(params.gpu_memory_fraction);
-    }
-    if (params.visible_devices != nullptr)
-    {
-        gpu_options->set_visible_device_list(params.visible_devices);
-    }
     return options;
 }
 
-#if PRINT_GRAPH_INFO
-void PrintGraphInfo(const tf::GraphDef& graph_def)
-{
-    auto PrintShape = [](const auto& shape)
-    {
-        std::cerr << "(";
-        const char* delimiter = "";
-        for (int j = 0; j < shape.dim_size(); ++j)
-        {
-            std::cerr << delimiter << shape.dim(j).size();
-            delimiter = ", ";
-        }
-        std::cerr << ")";
-    };
-
-    for (int i = 0; i < graph_def.node_size(); i++)
-    {
-        auto& node = graph_def.node(i);
-        std::cerr << node.name();
-
-        auto output_shapes = node.attr().find("_output_shapes");
-        if (output_shapes != node.attr().end())
-        {
-            for (int j = 0; j < output_shapes->second.list().shape_size(); ++j)
-            {
-                std::cerr << " ";
-                PrintShape(output_shapes->second.list().shape(j));
-            }
-        }
-
-        auto value = node.attr().find("value");
-        if (value != node.attr().end() && value->second.has_tensor())
-        {
-            std::cerr << " ";
-            PrintShape(value->second.tensor().tensor_shape());
-        }
-
-        std::cerr << "\n";
-    }
-}
-#endif // if PRINT_GRAPH_INFO
-
-// Input and output nodes protobuf example:
-//    name: "inputs"
-//    op: "Placeholder"
-//    attr {
-//      key: "_output_shapes"
-//      value {
-//        list {
-//          shape {
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: 9
-//            }
-//          }
-//        }
-//      }
-//    }
-//    attr {
-//      key: "dtype"
-//      value {
-//        type: DT_FLOAT
-//      }
-//    }
-//
-//    name: "outputs"
-//    op: "Identity"
-//    input: "Decoder/conv2d/Relu"
-//    attr {
-//      key: "T"
-//      value {
-//        type: DT_FLOAT
-//      }
-//    }
-//    attr {
-//      key: "_output_shapes"
-//      value {
-//        list {
-//          shape {
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: -1
-//            }
-//            dim {
-//              size: 3
-//            }
-//          }
-//        }
-//      }
-//    }
 void FillImageInfo(const tf::NodeDef& node, ml_image_info& info)
 {
     auto dtype_iter = node.attr().find("dtype");
@@ -144,12 +32,7 @@ void FillImageInfo(const tf::NodeDef& node, ml_image_info& info)
         throw std::runtime_error("Unable to detect node dtype: " + node.name());
     }
 
-    auto dtype = dtype_iter->second.type();
-    if (dtype != tf::DT_FLOAT)
-    {
-        throw std::runtime_error("Unsupported data type: " + std::to_string(dtype));
-    }
-    info.dtype = ML_FLOAT32;
+    info.dtype = ML::DataTypeFromTF(dtype_iter->second.type());
 
     auto& shape = node.attr().at("_output_shapes").list().shape(0);
     int dims = shape.dim_size();
@@ -177,6 +60,16 @@ void FillImageInfo(const tf::Tensor& tensor, ml_image_info& info)
 
 namespace ML {
 
+ml_model Model::MakeHandle(Model* model)
+{
+    return reinterpret_cast<ml_model>(model);
+}
+
+Model* Model::FromHandle(ml_model model)
+{
+    return reinterpret_cast<Model*>(model);
+}
+
 Model::Model(ml_model_params const* params)
 {
     if (params == nullptr)
@@ -197,10 +90,6 @@ Model::Model(ml_model_params const* params)
         m_error_cache << "Error reading graph definition: " << params->model_path << ": " << status;
         throw std::runtime_error(m_error_cache.str());
     }
-
-#if PRINT_GRAPH_INFO
-    PrintGraphInfo(m_graph_def);
-#endif
 
     int input_node_idx = 0;
     int output_node_idx = m_graph_def.node_size() - 1;
@@ -279,6 +168,13 @@ ml_status Model::SetInputInfo(ml_image_info const* info)
         return ML_FAIL;
     }
 
+    if (m_input_info.dtype != info->dtype)
+    {
+        m_error_cache << "Overriding data type "
+                      << m_input_info.dtype << " with " << info->dtype;
+        return ML_FAIL;
+    }
+
     auto validate_dim = [this, info](auto dim, char const* name)
     {
         if (m_input_info.*dim != 0 && info->*dim != m_input_info.*dim)
@@ -307,6 +203,8 @@ ml_status Model::SetInputInfo(ml_image_info const* info)
 
     m_input_info = *info;
 
+    auto dtype = DataTypeToTF(m_input_info.dtype);
+
     tf::TensorShape input_shape {
         1,
         static_cast<tf::int64>(m_input_info.height),
@@ -315,7 +213,7 @@ ml_status Model::SetInputInfo(ml_image_info const* info)
     };
 
     m_input_map.clear();
-    m_input_map.emplace_back(m_input_node, tf::Tensor(tf::DT_FLOAT, std::move(input_shape)));
+    m_input_map.emplace_back(m_input_node, tf::Tensor(dtype, std::move(input_shape)));
 
     try
     {
