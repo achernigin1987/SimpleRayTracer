@@ -1,6 +1,7 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_nonuniform_qualifier : enable
 
 #include "common.h"
 
@@ -26,9 +27,12 @@ layout(binding = 3) buffer RayCount   { uint  rayCount;     };
 layout(binding = 4) buffer Hits       { Hit   hits[];       };
 layout(binding = 5) buffer CameraRays { Ray   cameraRays[]; };
 layout(binding = 6) buffer Random     { uint  random[];     };
-layout(binding = 7) buffer Shapes     { Shape shapes[];     };
-layout(binding = 8) buffer Indices    { uint  indices[];    };
-layout(binding = 9) buffer Vertices   { float vertices[];   };
+layout(binding = 7) buffer Color      { uint  color[];     };
+layout(binding = 8) buffer Shapes     { Shape shapes[];     };
+layout(binding = 9) buffer Indices    { uint  indices[];    };
+layout(binding = 10) buffer Vertices  { float vertices[];   };
+layout(binding = 11) buffer Materials { Material materials[]; };
+layout(binding = 12) uniform sampler2D[] textures;
 
 shared uint ScanBuffer[GROUP_SIZE];
 shared uint RayOffset;
@@ -222,16 +226,28 @@ vec3 MapToHemisphere(in vec2 s, in vec3 n, in float e)
     return normalize(u * sintheta * cospsi + v * sintheta * sinpsi + n * costheta);
 }
 
+uint PackColor(in vec4 color)
+{
+    return
+        ((uint(color.a * 255.0f) & 0xffu) << 24) |
+        ((uint(color.r * 255.0f) & 0xffu) << 16) |
+        ((uint(color.g * 255.0f) & 0xffu) << 8 ) |
+        ((uint(color.b * 255.0f) & 0xffu) << 0 );
+}
+
 void main()
 {
     // Read the intersection data
     const uint tid = gl_GlobalInvocationID.x;
     const uint local_id = gl_LocalInvocationID.x;
+
     const Hit hit = hits[tid];
 
     // Initialize memory
     Ray ray;
     ray.max_t = 0.0f;
+    
+    const uint pixel_id = GetPixelIdx(tid);
 
     // Check if we've hit some geometry
     if (hit.shape_id != INVALID_ADDR)
@@ -245,8 +261,26 @@ void main()
         // Interpolate the surface information
         vec3 position = (1.0f - hit.uv.x - hit.uv.y) * v0.position + hit.uv.x * v1.position + hit.uv.y * v2.position;
         vec3 normal = normalize((1.0f - hit.uv.x - hit.uv.y) * v0.normal + hit.uv.x * v1.normal + hit.uv.y * v2.normal);
+        vec3 hit_color = (1.0f - hit.uv.x - hit.uv.y) * v0.color + hit.uv.x * v1.color + hit.uv.y * v2.color;
         vec3 geo_normal = normalize(cross(v1.position - v0.position, v2.position - v0.position));
+        vec2 uv = v0.texcoords * (1.0f - hit.uv.x - hit.uv.y) + v1.texcoords * hit.uv.x + v2.texcoords * hit.uv.y;
 
+        if (shape.material != INVALID_ADDR)
+        {
+            Material mat = materials[shape.material];
+            vec3 c = mat.albedo;
+            if (mat.albedo_map != INVALID_ADDR)
+            {
+                vec4 tex_color = texture(textures[mat.albedo_map], uv);
+                hit_color *= tex_color.xyz;
+                color[pixel_id] = PackColor(vec4(hit_color, 1.0f));
+            }
+            else
+            {
+                // Write color to output buffer
+                color[pixel_id] = PackColor(vec4(hit_color, 1.0f));
+            }
+        }
         // Generate a random direction
         if (dot(geo_normal, cameraRays[tid].direction) > 0.0f)
         {
@@ -264,6 +298,10 @@ void main()
             ray.max_t = AO_RADIUS;
             ray.time = 0.0f;
         }
+    }
+    else
+    {
+        color[pixel_id] = PackColor(vec4(0.0f, 0.0f, 0.0f, 1.0f));
     }
 
     // Calculate scatter offset

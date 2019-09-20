@@ -48,7 +48,7 @@ namespace PathTracer
     }
 
     // Creates a pipeline object
-    VkResult Pipeline::Create(char const* shader_file, VkDescriptorType const* descriptor_types, uint32_t descriptor_type_count, uint32_t push_constants_size)
+    VkResult Pipeline::Create(char const* shader_file, DescriptorTypeInfo const* descriptor_types, uint32_t descriptor_type_count, uint32_t push_constants_size)
     {
         Destroy();
         VkResult result;
@@ -62,9 +62,10 @@ namespace PathTracer
         {
             descriptor_set_layout_binding = {};
             descriptor_set_layout_binding.binding = binding;
-            descriptor_set_layout_binding.descriptorType = descriptor_types[binding++];
-            descriptor_set_layout_binding.descriptorCount = 1;
+            descriptor_set_layout_binding.descriptorType = descriptor_types[binding].descriptor_type_;
+            descriptor_set_layout_binding.descriptorCount = descriptor_types[binding].count_;
             descriptor_set_layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            binding++;
         }
 
         // Create the descriptor set layout
@@ -201,7 +202,7 @@ namespace PathTracer
             write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             write_descriptor_set.dstSet = descriptor_set;
             write_descriptor_set.dstBinding = descriptor_set_layout_bindings_[binding].binding;
-            write_descriptor_set.descriptorCount = 1;
+            write_descriptor_set.descriptorCount = descriptor_set_layout_bindings_[binding].descriptorCount;
             write_descriptor_set.descriptorType = descriptor_set_layout_bindings_[binding].descriptorType;
             if (bindings[binding].image_infos_.empty())
             {

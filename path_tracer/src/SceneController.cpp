@@ -141,6 +141,7 @@ namespace PathTracer
             }
 
             // Create the material object
+            found_materials[material.name] = materials_.size();
             materials_.emplace_back(Material());
             auto& m = materials_.back();
 
@@ -282,24 +283,24 @@ namespace PathTracer
             std::vector<uint32_t> indices;
             std::map<ObjKey, uint32_t> objMap;
 
-            uint32_t i = 0, material_id = 0;
+            uint32_t i = 0u;
             uint32_t mat_id = INVALID_ID;
-            for (auto face = shape.mesh.num_face_vertices.begin(); face != shape.mesh.num_face_vertices.end(); i += *face, ++material_id, ++face)
+            // Load the material information
+            auto material_idx = (!shape.mesh.material_ids.empty() ? shape.mesh.material_ids[0u] : 0xffffffffu);
+            auto material = (material_idx != 0xffffffffu ? &materials[material_idx] : nullptr);
+
+            if (material)
+            {
+                mat_id = found_materials.find(material->name)->second;
+            }
+
+            for (auto face = shape.mesh.num_face_vertices.begin(); face != shape.mesh.num_face_vertices.end(); i += *face, ++face)
             {
                 // We only support triangle primitives
                 if (*face != 3)
                 {
                     continue;
                 }
-                // Load the material information
-                auto material_idx = (!shape.mesh.material_ids.empty() ? shape.mesh.material_ids[material_id] : 0xffffffffu);
-                auto material = (material_idx != 0xffffffffu ? &materials[material_idx] : nullptr);
-
-                if (material == nullptr)
-                {
-                    continue;
-                }
-                mat_id = found_materials.find(material->name)->second;
 
                 for (auto v = 0u; v < 3u; ++v)
                 {
@@ -341,7 +342,7 @@ namespace PathTracer
                         {
                             for (auto c = 0u; c < 3u; ++c)
                             {
-                                vertex[c + 9] = glm::pow(material->diffuse[c], 2.2f);
+                                vertex[c + 9] = material->diffuse[c];
                             }
                         }
                         for (auto value : vertex)

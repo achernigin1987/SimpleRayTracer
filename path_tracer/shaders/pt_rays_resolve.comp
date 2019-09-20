@@ -24,7 +24,6 @@ THE SOFTWARE.
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.h"
-#define MAX_TEXTURES 512
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -59,5 +58,5 @@ void main()
     float pixel_color = sqrt(float(aoBuffer[pixel_idx].x) / float(aoBuffer[pixel_idx].y));
 
     // Write the color out to memory
-    color[pixel_idx] = PackColor(vec4(vec3(pixel_color), 1.0f));
+    //color[pixel_idx] = color[pixel_idx] + PackColor(vec4(vec3(pixel_color), 1.0f));
 }

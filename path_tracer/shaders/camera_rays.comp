@@ -136,22 +136,19 @@ uvec2 GetPos(in uint idx, in uint dim)
     return uvec2(idx % dim, idx / dim);
 }
 
-uvec2 GetPixelPos(in uint idx)
-{
-    return GetPos(idx & 0x3Fu, 8) | (GetPos(idx >> 6, uint(screen_dims.x + 7.0f) >> 3) << 3);
-}
-
 void main()
 {
     Ray ray;
 
     // Get hold of the pixel
     uint tid = gl_GlobalInvocationID.x;
-    uvec2 pixel_pos = GetPixelPos(tid);
+    uvec2 pixel_pos = GetPos(tid, uint(screen_dims.x));
 
     // Clear memory
     if (tid == 0)
+    {
         rayCount = 0;
+    }
     if (eye.w == 0.0f)
     {
         aoBuffer[tid] = uvec2(0);

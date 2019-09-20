@@ -13,12 +13,12 @@ namespace PathTracer
             : manager_(manager)
             , ao_command_buffer_(manager_->command_pool_, manager_->device_)
             , camera_rays_pipeline_(manager_)
-            , ao_rays_pipeline_(manager_)
-            , ao_rays_resolve_pipeline_(manager_)
+            , pt_rays_pipeline_(manager_)
+            , pt_rays_resolve_pipeline_(manager_)
         {
         }
         void Init(uint32_t num_rays, std::vector<float> const& vertices, std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes,
-                  std::vector<Material> const& materials, std::vector<Texture> const& textures, VkDeviceSize scratch_trace_size)
+                  VkDeviceSize scratch_trace_size)
         {
             fence_ = manager_->CreateFence();
 
@@ -36,7 +36,6 @@ namespace PathTracer
             VkDeviceSize hits_size = VkDeviceSize(num_rays * sizeof(RrHit));
             VkDeviceSize ao_size = VkDeviceSize(num_rays * sizeof(glm::uvec2));
             VkDeviceSize ao_id_size = VkDeviceSize(num_rays * sizeof(uint32_t));
-            VkDeviceSize materials_size = VkDeviceSize(materials.size() * sizeof(Material));
 
             params_ = manager_->CreateBuffer(params_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
             indices_ = manager_->CreateBuffer(indices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -51,9 +50,8 @@ namespace PathTracer
             ao_ = manager_->CreateBuffer(ao_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             ao_id_ = manager_->CreateBuffer(ao_id_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
             scratch_trace_ = manager_->CreateBuffer(scratch_trace_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            materials_ = manager_->CreateBuffer(materials_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
-            InitMemoryForBuffers(num_rays, vertices, indices, shapes, materials, textures);
+            InitMemoryForBuffers(num_rays, vertices, indices, shapes);
         }
 
         VkDeviceSize GetBufferMemorySize(VkScopedObject<VkBuffer> buffer)
@@ -61,41 +59,6 @@ namespace PathTracer
             auto mem_req = manager_->GetBufferMemoryRequirements(buffer.get());
             VkDeviceSize offset = VulkanManager::align(mem_req.size, mem_req.alignment);
             return offset;
-        }
-
-        void CreateTextureImages(const std::vector<Texture>& textures)
-        {
-            // If no textures are present, create a dummy one to accommodate the pipeline layout
-            if (textures.empty())
-            {
-                int          tex_width = 1, tex_height = 1;
-                int          tex_channels = 4;
-                glm::u8vec4* color = new glm::u8vec4(255, 0, 255, 255);
-                uint8_t*     pixels = reinterpret_cast<uint8_t*>(color);
-
-                VkScopedObject<VkImage> texture_image;
-                VkScopedObject<VkDeviceMemory> texture_image_memory;
-                manager_->CreateTextureImage(pixels, tex_width, tex_height, tex_channels, texture_image, texture_image_memory);
-
-                texture_image_.push_back(texture_image);
-                texture_image_memory_.push_back(texture_image_memory);
-                texture_image_view_.push_back(manager_->CreateImageView(texture_image.get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT));
-                texture_sampler_.push_back(manager_->CreateTextureSampler());
-                return;
-            }
-
-
-            for (auto const& texture : textures)
-            {
-                VkScopedObject<VkImage> texture_image;
-                VkScopedObject<VkDeviceMemory> texture_image_memory;
-                manager_->CreateTextureImage(texture.data_.data(), texture.width_, texture.height_, texture.channel_count_, texture_image, texture_image_memory);
-                texture_image_.push_back(texture_image);
-                texture_image_memory_.push_back(texture_image_memory);
-
-                texture_image_view_.push_back(manager_->CreateImageView(texture_image.get(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT));
-                texture_sampler_.push_back(manager_->CreateTextureSampler());
-            }
         }
 
         void WaitForFence()
@@ -121,8 +84,7 @@ namespace PathTracer
         }
 
         void InitMemoryForBuffers(uint32_t num_rays, std::vector<float> const& vertices,
-                                  std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes,
-                                  std::vector<Material> const& materials, std::vector<Texture> const& textures)
+                                  std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes)
         {
             VkDeviceSize indices_offset = GetBufferMemorySize(params_);
             VkDeviceSize vertices_offset = indices_offset + GetBufferMemorySize(indices_);
@@ -137,9 +99,8 @@ namespace PathTracer
             VkDeviceSize ao_offset = hits_offset + GetBufferMemorySize(hits_);
             VkDeviceSize ao_id_offset = ao_offset + GetBufferMemorySize(ao_);
             VkDeviceSize scratch_offset = ao_id_offset + GetBufferMemorySize(ao_id_);
-            VkDeviceSize materials_offset = scratch_offset + GetBufferMemorySize(scratch_trace_);
 
-            VkDeviceSize overall_memory_size = materials_offset + GetBufferMemorySize(scratch_trace_);
+            VkDeviceSize overall_memory_size = scratch_offset + GetBufferMemorySize(scratch_trace_);
 
             auto memory_index = manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
             memory_ = manager_->AllocateDeviceMemory(memory_index, overall_memory_size);
@@ -157,7 +118,6 @@ namespace PathTracer
             manager_->BindBufferMemory(ao_.get(), memory_.get(), ao_offset);
             manager_->BindBufferMemory(ao_id_.get(), memory_.get(), ao_id_offset);
             manager_->BindBufferMemory(scratch_trace_.get(), memory_.get(), scratch_offset);
-            manager_->BindBufferMemory(materials_.get(), memory_.get(), materials_offset);
 
             void* indices_ptr = manager_->MapMemory(memory_.get(), indices_offset, indices.size() * sizeof(uint32_t));
             memcpy(indices_ptr, indices.data(), indices.size() * sizeof(uint32_t));
@@ -171,10 +131,6 @@ namespace PathTracer
             memcpy(shapes_ptr, shapes.data(), shapes.size() * sizeof(Shape));
             manager_->UnmapMemory(memory_.get(), shapes_offset, shapes.size() * sizeof(Shape));
 
-            void* materials_ptr = manager_->MapMemory(memory_.get(), materials_offset, materials.size() * sizeof(Material));
-            memcpy(materials_ptr, materials.data(), materials.size() * sizeof(Material));
-            manager_->UnmapMemory(memory_.get(), materials_offset, materials.size() * sizeof(Material));
-
             void* random_ptr = manager_->MapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
             std::random_device dev;
             std::mt19937 rng(dev());
@@ -186,17 +142,6 @@ namespace PathTracer
                 random_data[i] = dist6(rng);
             }
             manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
-
-            CreateTextureImages(textures);
-
-            for (size_t i = 0; i < texture_sampler_.size(); ++i)
-            {
-                VkDescriptorImageInfo image_info = {};
-                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_info.imageView = texture_image_view_[i].get();
-                image_info.sampler = texture_sampler_[i].get();
-                image_infos_.push_back(image_info);
-            }
         }
 
         // vulkan manager
@@ -209,7 +154,6 @@ namespace PathTracer
         VkScopedObject<VkBuffer> color_;
         VkScopedObject<VkBuffer> params_;
         VkScopedObject<VkBuffer> scratch_trace_;
-        VkScopedObject<VkBuffer> materials_;
         VkScopedObject<VkBuffer> camera_rays_;
         VkScopedObject<VkBuffer> ao_rays_;
         VkScopedObject<VkBuffer> ao_count_;
@@ -220,12 +164,7 @@ namespace PathTracer
 
         VkDeviceSize color_offset_;
         VkDeviceSize color_size_;
-        // textures
-        std::vector<VkDescriptorImageInfo> image_infos_;
-        std::vector<VkScopedObject<VkImage>> texture_image_;
-        std::vector<VkScopedObject<VkDeviceMemory>> texture_image_memory_;
-        std::vector<VkScopedObject<VkImageView>> texture_image_view_;
-        std::vector<VkScopedObject<VkSampler>> texture_sampler_;
+
         // The fence to be signalled
         VkScopedObject<VkFence> fence_;
         // pipelines
@@ -234,9 +173,9 @@ namespace PathTracer
         // The pipeline object for generating the camera rays
         Pipeline camera_rays_pipeline_;
         // The pipeline object for generating the ambient occlusion rays
-        Pipeline ao_rays_pipeline_;
+        Pipeline pt_rays_pipeline_;
         // The pipeline object for resolving the ambient occlusion rays
-        Pipeline ao_rays_resolve_pipeline_;
+        Pipeline pt_rays_resolve_pipeline_;
     };
 
     Ao::Ao(std::shared_ptr<VulkanManager> manager)
@@ -279,7 +218,7 @@ namespace PathTracer
         VkMemoryRequirements accel_trace_mem_reqs;
         rrGetAccelerationStructureTraceScratchMemoryRequirements(context_, top_level_structure, num_rays, &accel_trace_mem_reqs);
         VkDeviceSize scratch_trace_size = accel_trace_mem_reqs.size;
-        impl_->Init(num_rays, vertices, indices, shapes, scene.materials_, scene.textures_, scratch_trace_size);
+        impl_->Init(num_rays, vertices, indices, shapes, scratch_trace_size);
 
         PrepareCommandBuffer(num_rays);
     }
@@ -289,36 +228,31 @@ namespace PathTracer
         VkCommandBuffer cmd_buf = impl_->ao_command_buffer_.Get();
         // Create the compute pipelines
         impl_->camera_rays_pipeline_.Create("shaders/camera_rays.comp.spv", {
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Rays
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // AoBuffer
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Random
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},  // Params
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Rays
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // RayCount
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // AoBuffer
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Color
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}   // Random
                                             });
-        impl_->ao_rays_pipeline_.Create("shaders/ao_rays.comp.spv", {
-            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,  // Params
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Rays
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Hits
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // CameraRays
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Random
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Shapes
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Indices
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER   // Vertices
+        impl_->pt_rays_pipeline_.Create("shaders/ao_rays.comp.spv", {
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},  // Params
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Ids
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Rays
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // RayCount
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Hits
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // CameraRays
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Random
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Shapes
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Indices
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}  // Vertices
                                         });
-        impl_->ao_rays_resolve_pipeline_.Create("shaders/ao_rays_resolve.comp.spv", {
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // AoBuffer
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Color
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Ids
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // RayCount
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Hits
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Shapes
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Indices
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Vertices
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,  // Materials
-            VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER // Textures
+        impl_->pt_rays_resolve_pipeline_.Create("shaders/ao_rays_resolve.comp.spv", {
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // AoBuffer
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Color
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // Ids
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},  // RayCount
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}   // Hits
                                                 });
 
         impl_->ao_command_buffer_.Begin();
@@ -367,7 +301,7 @@ namespace PathTracer
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Generate the ambient occlusion rays
-        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->pt_rays_pipeline_.GetPipeline());
         Binding ao_ray_all_binding[] =
         {
             impl_->params_.get(),
@@ -382,8 +316,8 @@ namespace PathTracer
             impl_->vertices_.get()
         };
 
-        VkDescriptorSet ao_rays_desc = impl_->ao_rays_pipeline_.Bind(ao_ray_all_binding);
-        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
+        VkDescriptorSet ao_rays_desc = impl_->pt_rays_pipeline_.Bind(ao_ray_all_binding);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->pt_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
         VkBuffer before_ao_rays_trace[2] = { impl_->ao_rays_.get() , impl_->ao_count_.get() };
@@ -417,7 +351,7 @@ namespace PathTracer
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
         // Resolve the ambient occlusion rays
-        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipeline());
+        vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->pt_rays_resolve_pipeline_.GetPipeline());
         Binding ao_color_ray_binding[] =
         {
             impl_->ao_.get(),
@@ -425,14 +359,9 @@ namespace PathTracer
             impl_->ao_id_.get(),
             impl_->ao_count_.get(),
             impl_->hits_.get(),
-            impl_->shapes_.get(),
-            impl_->indices_.get(),
-            impl_->vertices_.get(),
-            impl_->materials_.get(),
-            impl_->image_infos_
         };
-        VkDescriptorSet ao_rays_resolve_desc = impl_->ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
-        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
+        VkDescriptorSet ao_rays_resolve_desc = impl_->pt_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
+        vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->pt_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
         manager_->EncodeBufferBarrier(impl_->color_.get(), VK_ACCESS_SHADER_WRITE_BIT,

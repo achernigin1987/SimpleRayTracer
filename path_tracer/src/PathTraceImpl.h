@@ -13,6 +13,8 @@ namespace PathTracer
         VkResult Submit() override;
         void UpdateView(Params const& params) override;
         VkBuffer GetColorBuffer() const override;
+        std::vector<uint32_t> GetColor() const override;
+        void SetColor(std::vector<uint32_t> const& color) override;
 
     private:
         void PrepareCommandBuffer(uint32_t num_rays);

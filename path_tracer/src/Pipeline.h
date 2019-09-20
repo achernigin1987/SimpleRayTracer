@@ -48,6 +48,17 @@ namespace PathTracer
         std::vector<VkDescriptorImageInfo> image_infos_;
     };
 
+    struct DescriptorTypeInfo
+    {
+        DescriptorTypeInfo(VkDescriptorType type, uint32_t count)
+            : descriptor_type_(type)
+            , count_(count)
+        {
+        }
+        VkDescriptorType descriptor_type_;
+        uint32_t count_;
+    };
+
     // A helper for dealing with Vulkan pipeline objects
     class Pipeline
     {
@@ -60,8 +71,8 @@ namespace PathTracer
         ~Pipeline();
 
         template<uint32_t COUNT>
-        VkResult Create(char const* shader_file, VkDescriptorType const (&descriptor_types)[COUNT], uint32_t push_constants_size = 0);
-        VkResult Create(char const* shader_file, VkDescriptorType const* descriptor_types, uint32_t descriptor_type_count, uint32_t push_constants_size = 0);
+        VkResult Create(char const* shader_file, DescriptorTypeInfo const (&descriptor_types)[COUNT], uint32_t push_constants_size = 0);
+        VkResult Create(char const* shader_file, DescriptorTypeInfo const* descriptor_types, uint32_t descriptor_type_count, uint32_t push_constants_size = 0);
         VkResult Destroy();
 
         template<uint32_t COUNT>
@@ -93,7 +104,7 @@ namespace PathTracer
 
     // Creates a pipeline object
     template<uint32_t COUNT>
-    VkResult Pipeline::Create(char const* shader_file, VkDescriptorType const (&descriptor_types)[COUNT], uint32_t push_constants_size)
+    VkResult Pipeline::Create(char const* shader_file, DescriptorTypeInfo const (&descriptor_types)[COUNT], uint32_t push_constants_size)
     {
         return Create(shader_file, descriptor_types, COUNT, push_constants_size);
     }
