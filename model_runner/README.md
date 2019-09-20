@@ -1,6 +1,6 @@
 # Model Runner
 
-## 1. Model C API
+## 1. ModelRunner C API
 
 The API is annotated with Doxygen comments, see [model_runner.h](model_runner.h) file.
 
@@ -119,7 +119,7 @@ Follow [this TensorFlow instruction](https://www.tensorflow.org/install/install_
 
 * Install all the required prerequisites.
 
-* Clone the TensorFlow repository (original one or the ROCm fork).
+* Clone the original TensorFlow repository.
 
 * Checkout the required TensorFlow version, e.g. `git checkout v1.14`.
 
@@ -142,14 +142,10 @@ To build a simple test application, run:
 ```bash
 bazel build ---config=opt --config=monolithic //model_runner:test_app
 ```
-* For ROCm stack, pass an extra argument:
-```bash
-bazel build --config=opt --config=monolithic --config=rocm //model_runner:test_app
-```
 
 The built application is `bazel-bin/model_runner/test_app`.
 
-The application requires `libRadeonProML.so` to be accessible for loading
+The application requires `libModelRunner.so` to be accessible for loading
 e.g. through setting `LD_LIBRARY_PATH`:
 ```bash
 export LD_LIBRARY_PATH=bazel-bin/model_runner
@@ -165,7 +161,6 @@ bazel-bin/model_runner/test_app -w 800 -h 600 \
 
 Run the application with a `-help` argument to get the list of available options:
 ```
-     -gmf: Amount of GPU memory to use (0, 1], unset by default
      -w: Input image width
      -h: Input image height
      -m: Path to TensorFlow model (protobuf format)
@@ -173,9 +168,6 @@ Run the application with a `-help` argument to get the list of available options
      -o: File for output data, write to stdout if omitted
      -in: Input node name, autodetect if omitted
      -on: Output node name, autodetect if omitted
-     -vdl: Comma-separated list of device indices to use, use all devices if omitted
 ```
-
-The `-gmf` parameter limits the amount of GPU memory to use.
 
 The input must contain contiguous data of a 3D image with dimensions expected by a model.
