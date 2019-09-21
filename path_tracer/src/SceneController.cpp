@@ -137,7 +137,7 @@ namespace PathTracer
             }
 
             // Create the material object
-            found_materials[material.name] = materials_.size();
+            found_materials[material.name] = (uint32_t)materials_.size();
             materials_.emplace_back(Material());
             auto& m = materials_.back();
 

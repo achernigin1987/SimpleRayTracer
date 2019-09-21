@@ -9,7 +9,7 @@ namespace PathTracer
     {
         PathTraceImpl(std::shared_ptr<VulkanManager> manager)
             : manager_(manager)
-            , ao_command_buffer_(manager_->command_pool_, manager_->device_)
+            , pt_command_buffer_(manager_->command_pool_, manager_->device_)
             , camera_rays_pipeline_(manager_)
             , pt_rays_pipeline_(manager_)
             , pt_rays_resolve_pipeline_(manager_)
@@ -185,6 +185,8 @@ namespace PathTracer
             }
             manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
 
+
+
             CreateTextureImages(textures);
 
             for (size_t i = 0; i < texture_sampler_.size(); ++i)
@@ -227,7 +229,7 @@ namespace PathTracer
         // The fence to be signalled
         VkScopedObject<VkFence> fence_;
         // pipelines
-        CommandBuffer ao_command_buffer_;
+        CommandBuffer pt_command_buffer_;
         // Pipelines
         // The pipeline object for generating the camera rays
         Pipeline camera_rays_pipeline_;
@@ -284,7 +286,7 @@ namespace PathTracer
 
     void PathTrace::PrepareCommandBuffer(uint32_t num_rays)
     {
-        VkCommandBuffer cmd_buf = impl_->ao_command_buffer_.Get();
+        VkCommandBuffer cmd_buf = impl_->pt_command_buffer_.Get();
         // Create the compute pipelines
         impl_->camera_rays_pipeline_.Create("shaders/camera_rays.comp.spv", {
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1},  // Params
@@ -318,7 +320,7 @@ namespace PathTracer
                                                 });
 
 
-        impl_->ao_command_buffer_.Begin();
+        impl_->pt_command_buffer_.Begin();
         vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->camera_rays_pipeline_.GetPipeline());
         // Generate the camera rays
         Binding cam_rays_bindings[] =
@@ -435,12 +437,12 @@ namespace PathTracer
         //                              VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         //                              VK_PIPELINE_STAGE_TRANSFER_BIT, cmd_buf);
 
-        impl_->ao_command_buffer_.End();
+        impl_->pt_command_buffer_.End();
     }
 
     VkResult PathTrace::Submit()
     {
-        return impl_->ao_command_buffer_.Submit(manager_->queue_, nullptr, 0u, nullptr, 0u, impl_->fence_.get());
+        return impl_->pt_command_buffer_.Submit(manager_->queue_, nullptr, 0u, nullptr, 0u, impl_->fence_.get());
     }
 
     void PathTrace::UpdateView(Params const & params)
