@@ -1,5 +1,3 @@
-#pragma once
-
 #include "SceneController.h"
 #include <tiny_obj_loader.h>
 #include <iostream>
@@ -388,7 +386,7 @@ namespace PathTracer
         }
         catch (std::exception& e)
         {
-            std::cout << "Failed to load " << filename << " due to " << e.what();
+            std::cout << "Failed to load " << filename << " due to " << e.what() << std::endl;
             return false;
         }
 

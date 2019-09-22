@@ -20,6 +20,7 @@
 
 #include "AoSample.h"
 #include "AccelerationStructureController.h"
+#include "InferenceEngine.h"
 
 namespace PathTracer
 {
@@ -63,6 +64,7 @@ namespace PathTracer
         std::shared_ptr<VulkanManager> vulkan_manager_;
         std::unique_ptr<AccelerationStructureController> as_controller_;
         std::unique_ptr<Window> window_;
+        std::unique_ptr<InferenceEngine> engine_;
         // The camera controller
         Orbit orbit_;
         // The view-projection matrix

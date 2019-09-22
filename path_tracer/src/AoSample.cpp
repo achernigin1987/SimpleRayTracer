@@ -2,6 +2,9 @@
 #include <iterator>
 #include <random>
 #include <glm/glm.hpp>
+#include <cstring>
+
+using namespace std;
 
 namespace PathTracer
 {

@@ -5,11 +5,15 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <cstring>
+
+using namespace std;
 
 #include "PathTraceImpl.h"
 #include "Application.h"
 #include "AccelerationStructureController.h"
 #include "SceneController.h"
+#include "InferenceEngine.h"
 
 namespace PathTracer
 {
@@ -41,6 +45,7 @@ namespace PathTracer
     int32_t Application::Run(int32_t argc, char const** argv)
     {
         window_ = std::make_unique<Window>();
+        engine_ = std::make_unique<InferenceEngine>("denoise.pb", window_->window_width_, window_->window_height_);
         // Initialize Vulkan
         if (!vulkan_manager_->Init(*window_))
         {
@@ -157,6 +162,9 @@ namespace PathTracer
     {
         // Submit the command buffers
         trace_algo_->Submit();
+        auto color = trace_algo_->GetColor();
+        engine_->Inference(color);
+        trace_algo_->SetColor(color);
         SubmitBlitCommandBuffer(blit_cmd_buffers_, vulkan_manager_->queue_);
 
         return VK_SUCCESS;

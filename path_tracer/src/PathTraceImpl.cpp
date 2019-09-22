@@ -394,8 +394,8 @@ namespace PathTracer
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
 
-        //// Trace the ambient occlusion rays
-        //// it is not necessary to trace full hit
+        // Trace the ambient occlusion rays
+        // it is not necessary to trace full hit
         //status = rrCmdTraceRaysIndirect(
         //    context_,
         //    top_level_structure_,

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <cstring>
 #include <glm/glm.hpp>
 
 namespace PathTracer
@@ -39,7 +40,7 @@ namespace PathTracer
     private:
         static inline char const* GetFileExtension(char const* filename)
         {
-            char const* fileExtension = strrchr(filename, '.');
+            char const* fileExtension = std::strrchr(filename, '.');
             return (fileExtension ? fileExtension : filename);
         }
 

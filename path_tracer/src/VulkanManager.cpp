@@ -1,6 +1,9 @@
-﻿#include "VulkanManager.h"
+#include "VulkanManager.h"
 #include <iostream>
 #include <algorithm>
+#include <cstring>
+
+using namespace std;
 
 namespace
 {
