@@ -32,7 +32,7 @@ layout(binding = 0) buffer AoBuffer { uvec2 aoBuffer[]; };
 layout(binding = 1) buffer Color    { uint  color[];    };
 layout(binding = 2) buffer Ids      { uint  ids[];      };
 layout(binding = 3) buffer RayCount { uint  rayCount;   };
-layout(binding = 4) buffer Hits     { Hit   hits[];     };
+layout(binding = 4) buffer Hits     { uint  hits[];     };
 
 uint PackColor(in vec4 color)
 {
@@ -51,11 +51,11 @@ void main()
     {
         return; // out of bounds
     }
-    const Hit hit = hits[tid];
+    const uint hit = hits[tid];
 
     // If we hit something, go black otherwise, go white
     const uint pixel_idx = ids[tid];
-    aoBuffer[pixel_idx] += uvec2(hit.shape_id == INVALID_ADDR ? 1 : 0, 1);
+    aoBuffer[pixel_idx] += uvec2(hit == INVALID_ADDR ? 1 : 0, 1);
     float pixel_color = sqrt(float(aoBuffer[pixel_idx].x) / float(aoBuffer[pixel_idx].y));
 
     // Write the color out to memory

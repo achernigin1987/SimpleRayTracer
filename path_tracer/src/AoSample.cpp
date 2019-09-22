@@ -22,38 +22,7 @@ namespace PathTracer
         {
             fence_ = manager_->CreateFence();
 
-            VkDeviceSize params_size = VkDeviceSize(sizeof(Params));
-            VkDeviceSize indices_size = VkDeviceSize(indices.size() * sizeof(uint32_t));
-            VkDeviceSize vertices_size = VkDeviceSize(vertices.size() * sizeof(float));
-            VkDeviceSize shapes_size = VkDeviceSize(shapes.size() * sizeof(Shape));
-            VkDeviceSize random_size = VkDeviceSize(num_rays * sizeof(uint32_t));
-
-            color_size_ = VkDeviceSize(num_rays * sizeof(uint32_t));
-            VkDeviceSize camera_rays_size = VkDeviceSize(num_rays * sizeof(RrRay));
-            VkDeviceSize ao_rays_size = VkDeviceSize(num_rays * sizeof(RrRay));
-
-            VkDeviceSize ao_count_size = VkDeviceSize(4u * sizeof(uint32_t));
-            VkDeviceSize hits_size = VkDeviceSize(num_rays * sizeof(RrHit));
-            VkDeviceSize shadow_hits_size = VkDeviceSize(num_rays * sizeof(uint32_t));
-            VkDeviceSize ao_size = VkDeviceSize(num_rays * sizeof(glm::uvec2));
-            VkDeviceSize ao_id_size = VkDeviceSize(num_rays * sizeof(uint32_t));
-
-            params_ = manager_->CreateBuffer(params_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            indices_ = manager_->CreateBuffer(indices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-            vertices_ = manager_->CreateBuffer(vertices_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-            shapes_ = manager_->CreateBuffer(shapes_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            random_ = manager_->CreateBuffer(random_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            color_ = manager_->CreateBuffer(color_size_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-            camera_rays_ = manager_->CreateBuffer(camera_rays_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            ao_rays_ = manager_->CreateBuffer(ao_rays_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            ao_count_ = manager_->CreateBuffer(ao_count_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            hits_ = manager_->CreateBuffer(hits_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            shadow_hits_ = manager_->CreateBuffer(shadow_hits_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            ao_ = manager_->CreateBuffer(ao_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            ao_id_ = manager_->CreateBuffer(ao_id_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            scratch_trace_ = manager_->CreateBuffer(scratch_trace_size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-
-            InitMemoryForBuffers(num_rays, vertices, indices, shapes);
+            InitMemoryForBuffers(num_rays, vertices, indices, shapes, scratch_trace_size);
         }
 
         VkDeviceSize GetBufferMemorySize(VkScopedObject<VkBuffer> buffer)
@@ -86,88 +55,67 @@ namespace PathTracer
         }
 
         void InitMemoryForBuffers(uint32_t num_rays, std::vector<float> const& vertices,
-                                  std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes)
+                                  std::vector<uint32_t> const& indices, std::vector<Shape> const& shapes, VkDeviceSize scratch_trace_size)
         {
-            VkDeviceSize indices_offset = GetBufferMemorySize(params_);
-            VkDeviceSize vertices_offset = indices_offset + GetBufferMemorySize(indices_);
-            VkDeviceSize shapes_offset = vertices_offset + GetBufferMemorySize(vertices_);
-            VkDeviceSize random_offset = shapes_offset + GetBufferMemorySize(shapes_);
-            color_offset_ = random_offset + GetBufferMemorySize(random_);
-            VkDeviceSize camera_rays_offset = color_offset_ + GetBufferMemorySize(color_);
+            indices_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indices);
+            vertices_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertices);
+            shapes_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, shapes);
 
-            VkDeviceSize ao_rays_offset = camera_rays_offset + GetBufferMemorySize(camera_rays_);
-            VkDeviceSize ao_count_offset = ao_rays_offset + GetBufferMemorySize(ao_rays_);
-            VkDeviceSize hits_offset = ao_count_offset + GetBufferMemorySize(ao_count_);
-            VkDeviceSize shadow_hits_offset = hits_offset + GetBufferMemorySize(hits_);
-            VkDeviceSize ao_offset = shadow_hits_offset + GetBufferMemorySize(shadow_hits_);
-            VkDeviceSize ao_id_offset = ao_offset + GetBufferMemorySize(ao_);
-            VkDeviceSize scratch_offset = ao_id_offset + GetBufferMemorySize(ao_id_);
-
-            VkDeviceSize overall_memory_size = scratch_offset + GetBufferMemorySize(scratch_trace_);
-
-            auto memory_index = manager_->FindDeviceMemoryIndex(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-            memory_ = manager_->AllocateDeviceMemory(memory_index, overall_memory_size);
-
-            manager_->BindBufferMemory(params_.get(), memory_.get(), 0u);
-            manager_->BindBufferMemory(indices_.get(), memory_.get(), indices_offset);
-            manager_->BindBufferMemory(vertices_.get(), memory_.get(), vertices_offset);
-            manager_->BindBufferMemory(shapes_.get(), memory_.get(), shapes_offset);
-            manager_->BindBufferMemory(random_.get(), memory_.get(), random_offset);
-            manager_->BindBufferMemory(color_.get(), memory_.get(), color_offset_);
-            manager_->BindBufferMemory(camera_rays_.get(), memory_.get(), camera_rays_offset);
-            manager_->BindBufferMemory(ao_rays_.get(), memory_.get(), ao_rays_offset);
-            manager_->BindBufferMemory(ao_count_.get(), memory_.get(), ao_count_offset);
-            manager_->BindBufferMemory(hits_.get(), memory_.get(), hits_offset);
-            manager_->BindBufferMemory(shadow_hits_.get(), memory_.get(), shadow_hits_offset);
-            manager_->BindBufferMemory(ao_.get(), memory_.get(), ao_offset);
-            manager_->BindBufferMemory(ao_id_.get(), memory_.get(), ao_id_offset);
-            manager_->BindBufferMemory(scratch_trace_.get(), memory_.get(), scratch_offset);
-
-            void* indices_ptr = manager_->MapMemory(memory_.get(), indices_offset, indices.size() * sizeof(uint32_t));
-            memcpy(indices_ptr, indices.data(), indices.size() * sizeof(uint32_t));
-            manager_->UnmapMemory(memory_.get(), indices_offset, indices.size() * sizeof(uint32_t));
-
-            void* vertices_ptr = manager_->MapMemory(memory_.get(), vertices_offset, vertices.size() * sizeof(float));
-            memcpy(vertices_ptr, vertices.data(), vertices.size() * sizeof(float));
-            manager_->UnmapMemory(memory_.get(), vertices_offset, vertices.size() * sizeof(float));
-
-            void* shapes_ptr = manager_->MapMemory(memory_.get(), shapes_offset, shapes.size() * sizeof(Shape));
-            memcpy(shapes_ptr, shapes.data(), shapes.size() * sizeof(Shape));
-            manager_->UnmapMemory(memory_.get(), shapes_offset, shapes.size() * sizeof(Shape));
-
-            void* random_ptr = manager_->MapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
             std::random_device dev;
             std::mt19937 rng(dev());
             std::uniform_int_distribution<std::mt19937::result_type> dist6(1, num_rays);
 
-            uint32_t* random_data = (uint32_t*)random_ptr;
+            std::vector<uint32_t> random_data(num_rays);
             for (uint32_t i = 0; i < num_rays; ++i)
             {
                 random_data[i] = dist6(rng);
             }
-            manager_->UnmapMemory(memory_.get(), random_offset, num_rays * sizeof(uint32_t));
+            random_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, random_data);
+
+            std::vector<uint32_t> initializer(num_rays, 0u);
+            color_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, initializer);
+            color_size_ = initializer.size() * sizeof(uint32_t);
+            ao_count_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, initializer);
+            shadow_hits_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, initializer);
+            ao_id_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, initializer);
+
+            std::vector<RrRay> rays_initializer(num_rays);
+            ao_rays_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, rays_initializer);
+            camera_rays_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, rays_initializer);
+
+            std::vector<RrHit> hits_initializer(num_rays);
+            hits_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, hits_initializer);
+
+            std::vector<uint8_t> scratch_initializer(scratch_trace_size);
+            scratch_trace_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, scratch_initializer);
+
+            std::vector<glm::uvec2> ao_initializer(num_rays);
+            ao_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, ao_initializer);
+
+            std::vector<Params> params_initializer(1);
+            params_ = manager_->CreateAllocatedBuffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, params_initializer);
         }
 
         // vulkan manager
         std::shared_ptr<VulkanManager> manager_;
         // ao buffers
-        VkScopedObject<VkDeviceMemory> memory_;
-        VkScopedObject<VkBuffer> indices_;
-        VkScopedObject<VkBuffer> vertices_;
-        VkScopedObject<VkBuffer> shapes_;
-        VkScopedObject<VkBuffer> color_;
-        VkScopedObject<VkBuffer> params_;
-        VkScopedObject<VkBuffer> scratch_trace_;
-        VkScopedObject<VkBuffer> camera_rays_;
-        VkScopedObject<VkBuffer> ao_rays_;
-        VkScopedObject<VkBuffer> ao_count_;
-        VkScopedObject<VkBuffer> hits_;
-        VkScopedObject<VkBuffer> shadow_hits_;
-        VkScopedObject<VkBuffer> random_;
-        VkScopedObject<VkBuffer> ao_;
-        VkScopedObject<VkBuffer> ao_id_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> indices_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> vertices_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> shapes_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> color_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> params_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> scratch_trace_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> camera_rays_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> ao_rays_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> ao_count_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> hits_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> shadow_hits_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> random_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> ao_;
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> ao_id_;
 
-        VkDeviceSize color_offset_;
         VkDeviceSize color_size_;
 
         // The fence to be signalled
@@ -265,18 +213,18 @@ namespace PathTracer
         // Generate the camera rays
         Binding cam_rays_bindings[] =
         {
-            impl_->params_.get(),
-            impl_->camera_rays_.get(),
-            impl_->ao_count_.get(),
-            impl_->ao_.get(),
-            impl_->color_.get(),
-            impl_->random_.get(),
+            impl_->params_.first.get(),
+            impl_->camera_rays_.first.get(),
+            impl_->ao_count_.first.get(),
+            impl_->ao_.first.get(),
+            impl_->color_.first.get(),
+            impl_->random_.first.get(),
         };
         VkDescriptorSet cam_rays_desc = impl_->camera_rays_pipeline_.Bind(cam_rays_bindings);
         vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->camera_rays_pipeline_.GetPipelineLayout(), 0, 1, &cam_rays_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        manager_->EncodeBufferBarrier(impl_->camera_rays_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->camera_rays_.first.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_SHADER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
@@ -289,9 +237,9 @@ namespace PathTracer
             RR_OUTPUT_TYPE_FULL_HIT,
             0u,
             num_rays,
-            impl_->camera_rays_.get(),
-            impl_->hits_.get(),
-            impl_->scratch_trace_.get(),
+            impl_->camera_rays_.first.get(),
+            impl_->hits_.first.get(),
+            impl_->scratch_trace_.first.get(),
             cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
@@ -299,7 +247,7 @@ namespace PathTracer
             throw std::runtime_error("Trace Rays failed");
         }
 
-        VkBuffer after_camera_rays_trace[2] = { impl_->hits_.get() , impl_->ao_count_.get() };
+        VkBuffer after_camera_rays_trace[2] = { impl_->hits_.first.get() , impl_->ao_count_.first.get() };
         manager_->EncodeBufferBarriers(after_camera_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -309,23 +257,23 @@ namespace PathTracer
         vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipeline());
         Binding ao_ray_all_binding[] =
         {
-            impl_->params_.get(),
-            impl_->ao_id_.get(),
-            impl_->ao_rays_.get(),
-            impl_->ao_count_.get(),
-            impl_->hits_.get(),
-            impl_->camera_rays_.get(),
-            impl_->random_.get(),
-            impl_->shapes_.get(),
-            impl_->indices_.get(),
-            impl_->vertices_.get()
+            impl_->params_.first.get(),
+            impl_->ao_id_.first.get(),
+            impl_->ao_rays_.first.get(),
+            impl_->ao_count_.first.get(),
+            impl_->hits_.first.get(),
+            impl_->camera_rays_.first.get(),
+            impl_->random_.first.get(),
+            impl_->shapes_.first.get(),
+            impl_->indices_.first.get(),
+            impl_->vertices_.first.get()
         };
 
         VkDescriptorSet ao_rays_desc = impl_->ao_rays_pipeline_.Bind(ao_ray_all_binding);
         vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        VkBuffer before_ao_rays_trace[2] = { impl_->ao_rays_.get() , impl_->ao_count_.get() };
+        VkBuffer before_ao_rays_trace[2] = { impl_->ao_rays_.first.get() , impl_->ao_count_.first.get() };
         manager_->EncodeBufferBarriers(before_ao_rays_trace, 2, VK_ACCESS_SHADER_WRITE_BIT,
                                        VK_ACCESS_SHADER_READ_BIT,
                                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -337,10 +285,10 @@ namespace PathTracer
             RR_QUERY_TYPE_OCCLUDED,
             RR_OUTPUT_TYPE_INSTANCE_ID_ONLY,
             0u,
-            impl_->ao_rays_.get(),
-            impl_->shadow_hits_.get(),
-            impl_->ao_count_.get(),
-            impl_->scratch_trace_.get(),
+            impl_->ao_rays_.first.get(),
+            impl_->shadow_hits_.first.get(),
+            impl_->ao_count_.first.get(),
+            impl_->scratch_trace_.first.get(),
             cmd_buf);
 
         if (status != RR_STATUS_SUCCESS)
@@ -348,7 +296,7 @@ namespace PathTracer
             throw std::runtime_error("Trace Rays Indirect failed");
         }
 
-        manager_->EncodeBufferBarrier(impl_->shadow_hits_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->shadow_hits_.first.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_SHADER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, cmd_buf);
@@ -357,17 +305,17 @@ namespace PathTracer
         vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipeline());
         Binding ao_color_ray_binding[] =
         {
-            impl_->ao_.get(),
-            impl_->color_.get(),
-            impl_->ao_id_.get(),
-            impl_->ao_count_.get(),
-            impl_->shadow_hits_.get(),
+            impl_->ao_.first.get(),
+            impl_->color_.first.get(),
+            impl_->ao_id_.first.get(),
+            impl_->ao_count_.first.get(),
+            impl_->shadow_hits_.first.get(),
         };
         VkDescriptorSet ao_rays_resolve_desc = impl_->ao_rays_resolve_pipeline_.Bind(ao_color_ray_binding);
         vkCmdBindDescriptorSets(cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->ao_rays_resolve_pipeline_.GetPipelineLayout(), 0, 1, &ao_rays_resolve_desc, 0, nullptr);
         vkCmdDispatch(cmd_buf, (num_rays + 63) / 64, 1u, 1u);
 
-        manager_->EncodeBufferBarrier(impl_->color_.get(), VK_ACCESS_SHADER_WRITE_BIT,
+        manager_->EncodeBufferBarrier(impl_->color_.first.get(), VK_ACCESS_SHADER_WRITE_BIT,
                                       VK_ACCESS_TRANSFER_READ_BIT,
                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                       VK_PIPELINE_STAGE_TRANSFER_BIT, cmd_buf);
@@ -382,36 +330,36 @@ namespace PathTracer
 
     void Ao::UpdateView(Params const & params)
     {
-        void* params_ptr = manager_->MapMemory(impl_->memory_.get(), 0u, sizeof(Params));
+        void* params_ptr = manager_->MapMemory(impl_->params_.second.get(), 0u, sizeof(Params));
         impl_->WaitForFence();
         impl_->ResetFence();
 
         // Transfer the shader parameters to device memory
         memcpy(params_ptr, &params, sizeof(Params));
-        manager_->UnmapMemory(impl_->memory_.get(), 0u, sizeof(Params));
+        manager_->UnmapMemory(impl_->params_.second.get(), 0u, sizeof(Params));
     }
     std::vector<uint32_t> Ao::GetColor() const
     {
         std::vector<uint32_t> color(impl_->color_size_ / sizeof(uint32_t));
-        void* color_ptr = manager_->MapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        void* color_ptr = manager_->MapMemory(impl_->color_.second.get(), 0u, impl_->color_size_);
         impl_->WaitForFence();
 
         memcpy(color.data(), color_ptr, impl_->color_size_);
-        manager_->UnmapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        manager_->UnmapMemory(impl_->color_.second.get(), 0u, impl_->color_size_);
 
         return color;
     }
 
     VkBuffer Ao::GetColorBuffer() const
     {
-        return impl_->color_.get();
+        return impl_->color_.first.get();
     }
 
     void Ao::SetColor(std::vector<uint32_t> const& color)
     {
         impl_->WaitForFence();
-        void* color_ptr = manager_->MapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        void* color_ptr = manager_->MapMemory(impl_->color_.second.get(), 0u, impl_->color_size_);
         memcpy(color_ptr, color.data(), impl_->color_size_);
-        manager_->UnmapMemory(impl_->memory_.get(), impl_->color_offset_, impl_->color_size_);
+        manager_->UnmapMemory(impl_->color_.second.get(), 0u, impl_->color_size_);
     }
 }

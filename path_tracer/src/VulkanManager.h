@@ -2,6 +2,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <vector>
+#include <map>
 
 #include "Window.h"
 
@@ -63,6 +64,7 @@ namespace PathTracer
         VkScopedObject<VkBuffer> CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage) const;
         std::vector<CommandBuffer> CreateBlitCommandBuffers(VkBuffer buffer, Window const& window) const;
         VkMemoryRequirements GetBufferMemoryRequirements(VkBuffer buffer) const;
+
         void BindBufferMemory(VkBuffer buffer, VkDeviceMemory memory, VkDeviceSize offset) const;
         void* MapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const;
         void UnmapMemory(VkDeviceMemory memory, VkDeviceSize offset, VkDeviceSize size) const;
@@ -111,6 +113,50 @@ namespace PathTracer
         VkScopedObject<VkSampler> CreateTextureSampler() const;
 
         VkScopedObject<VkFence> CreateFence() const;
+
+        template <typename T>
+        std::pair<VkScopedObject<VkBuffer>, VkScopedObject<VkDeviceMemory>> CreateAllocatedBuffer(VkBufferUsageFlags usage,
+                                                                                                  VkMemoryPropertyFlags flags,
+                                                                                                  std::vector<T> const& data) const
+        {
+            VkScopedObject<VkBuffer> buffer = CreateBuffer(data.size() * sizeof(T), usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+            uint32_t mem_type_index = FindDeviceMemoryIndex(flags);
+
+            VkMemoryRequirements mem_reqs = GetBufferMemoryRequirements(buffer.get());
+
+            VkScopedObject<VkDeviceMemory> memory = AllocateDeviceMemory(mem_type_index, mem_reqs.size);
+
+            vkBindBufferMemory(device_, buffer.get(), memory.get(), 0);
+
+            if (!data.empty())
+            {
+                if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+                {
+                    void* dest = MapMemory(memory.get(), 0u, mem_reqs.size);
+                    memcpy(dest, data.data(), sizeof(T) * data.size());
+                    UnmapMemory(memory.get(), 0u, sizeof(T) * data.size());
+                }
+                else
+                {
+                    auto staging_pair = CreateAllocatedBuffer<T>(VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                                                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, data);
+
+                    CommandBuffer command_buffer(command_pool_, device_);
+                    VkCommandBuffer cmd = command_buffer.Get();
+
+                    command_buffer.Begin();
+                    EncodeCopyBuffer(staging_pair.first.get(), buffer.get(), 0u, 0u, mem_reqs.size, cmd);
+                    EncodeBufferBarrier(buffer.get(), VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
+                                        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, cmd);
+                    command_buffer.End();
+                    command_buffer.SubmitWait(queue_);
+                }
+            }
+
+            return std::make_pair(buffer, memory);
+        }
 
         template<typename T>
         static T align(T value, T alignment)

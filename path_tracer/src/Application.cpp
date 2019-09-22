@@ -109,7 +109,7 @@ namespace PathTracer
         Scene scene;
         scene.LoadFile(filename.c_str());
         as_controller_->BuildAccelerationStructure(scene);
-        trace_algo_ = std::make_unique<PathTrace>(vulkan_manager_);
+        trace_algo_ = std::make_unique<Ao>(vulkan_manager_);
         trace_algo_->Init(scene, as_controller_->Get(), as_controller_->GetContext(), window_->window_width_ * window_->window_height_);
         blit_cmd_buffers_ = vulkan_manager_->CreateBlitCommandBuffers(trace_algo_->GetColorBuffer(), *window_);
 

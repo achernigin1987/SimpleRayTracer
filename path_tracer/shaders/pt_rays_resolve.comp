@@ -57,6 +57,12 @@ void main()
     aoBuffer[pixel_idx] += uvec2(hit.shape_id == INVALID_ADDR ? 1 : 0, 1);
     float pixel_color = sqrt(float(aoBuffer[pixel_idx].x) / float(aoBuffer[pixel_idx].y));
 
+    uint c = color[pixel_idx];
+    vec3 cur;
+    cur.x = float((c >> 16) & 0xFFu);
+    cur.y = float((c >> 8) & 0xFFu);
+    cur.z = float((c >> 0) & 0xFFu);
+
     // Write the color out to memory
-    //color[pixel_idx] = color[pixel_idx] + PackColor(vec4(vec3(pixel_color), 1.0f));
+    color[pixel_idx] =  PackColor(vec4(pixel_color / 255.0f * cur, 1.0f));
 }
